@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Orbit Lab — Mandelbrot Trajectory Engine",
+  title: "Buddhabrot Splat Lab — Escape Orbit Volume",
   description:
-    "Move through the complex plane and render millions of Mandelbrot iteration points per second with WebGPU.",
+    "Explore escaping Mandelbrot trajectories as a live 3D volume of anisotropic Gaussian splats.",
 };
 
 export default function RootLayout({

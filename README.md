@@ -1,12 +1,13 @@
-# Orbit Lab
+# Buddhabrot Splat Lab
 
-A WebGPU Mandelbrot iterator. Move the pointer through the complex plane and
-watch nearby `z = z² + c` orbits accumulate as points. No line segments are
-drawn.
+A live WebGPU Gaussian-splat Buddhabrot. Candidate `c` values are iterated in
+parallel. Bounded paths are rejected; each step of every escaping orbit becomes
+an anisotropic Gaussian. Orbit time becomes the third axis, producing a 3D
+volume instead of a flat exposure.
 
-The renderer keeps orbit generation, point drawing, trail accumulation, and
-tone mapping on the GPU. Automatic load control adjusts the seed count to hold
-60 FPS. Orbit depth ranges from 32 to 8,192 iterations.
+Orbit rejection, splat generation, projection, exposure accumulation, bloom,
+and tone mapping stay on the GPU. Automatic load control adjusts the candidate
+seed count toward 60 FPS. No precomputed model or texture is loaded.
 
 ## Run locally
 
@@ -30,15 +31,15 @@ connection. The hosted production URL avoids LAN and firewall setup.
 
 ## Controls
 
-- Move pointer: choose `c`
-- Scroll: zoom
-- Shift + drag: pan
-- Orbit depth: 32–8,192 iterations, with a fixed GPU point budget
-- Seed field: maximum nearby trajectories
-- Trail memory: accumulation fade
-- Point size: 0.25–4 px; larger values use instanced circular quads
-- Size slope: −3 to +3; positive values grow later iteration points
-- Halo: enable or disable neighboring-pixel bloom
+- Drag: orbit the 3D volume
+- Scroll: dolly the camera
+- Orbit depth: 32–2,048 iterations, under a fixed GPU splat budget
+- Candidate seeds: maximum `c` values tested per frame
+- Volume depth: scale orbit time on the third axis; zero gives classic 2D
+- Seed radius: size of the sampled complex-plane square
+- Splat scale and tangent stretch: Gaussian covariance controls
+- Exposure memory: accumulation fade
+- Bloom and auto orbit: display controls
 - Auto-load: adapt seed count to the 60 FPS target
 
 ## Verify

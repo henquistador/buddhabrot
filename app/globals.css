@@ -87,6 +87,24 @@ body {
   background: var(--ink);
 }
 
+.splatMark {
+  border-color: #3c39d0;
+  background:
+    radial-gradient(ellipse at 66% 35%, rgba(255, 76, 171, 0.92), transparent 31%),
+    radial-gradient(ellipse at 35% 66%, rgba(33, 226, 191, 0.9), transparent 35%);
+}
+
+.splatMark::before {
+  border-color: rgba(42, 39, 183, 0.7);
+  transform: rotate(42deg) scaleX(1.55);
+}
+
+.splatMark::after {
+  inset: 11px;
+  border: 0;
+  background: #322fd0;
+}
+
 .brandName {
   font-size: 17px;
   font-weight: 690;
@@ -140,6 +158,17 @@ body {
     linear-gradient(90deg, rgba(221, 234, 214, 0.13) 1px, transparent 1px);
   background-size: 72px 72px;
   mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+
+.vignette {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 44%, transparent 38%, rgba(3, 4, 12, 0.34) 74%, rgba(3, 4, 12, 0.72) 100%),
+    linear-gradient(rgba(111, 106, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(111, 106, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, 72px 72px, 72px 72px;
 }
 
 .panel {
@@ -316,6 +345,12 @@ body {
   height: 13px;
   margin: 0;
   accent-color: var(--acid-ink);
+}
+
+.toggleGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .stats {

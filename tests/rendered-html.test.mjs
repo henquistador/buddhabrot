@@ -15,18 +15,18 @@ async function render() {
   );
 }
 
-test("server-renders Orbit Lab without the disposable starter", async () => {
+test("server-renders Buddhabrot Splat Lab without the disposable starter", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Orbit Lab/);
-  assert.match(html, /Mandelbrot trajectory engine/i);
-  assert.match(html, /Interactive Mandelbrot orbit field/);
+  assert.match(html, /<title>Buddhabrot Splat Lab/);
+  assert.match(html, /Escape-orbit volume/i);
+  assert.match(html, /Interactive 3D Buddhabrot Gaussian splat/);
   assert.match(html, /Auto · 60 FPS/);
-  assert.match(html, /Point size/);
-  assert.match(html, /Size slope/);
-  assert.match(html, /Halo/);
+  assert.match(html, /Splat scale/);
+  assert.match(html, /Tangent stretch/);
+  assert.match(html, /Bloom/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });

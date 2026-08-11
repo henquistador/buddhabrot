@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import OrbitLab from "./OrbitLab";
+import BuddhabrotSplat from "./BuddhabrotSplat";
 
 export const metadata: Metadata = {
-  title: "Orbit Lab",
-  description: "A GPU-powered Mandelbrot orbit explorer and live Buddhabrot precursor.",
+  title: "Buddhabrot Splat Lab",
+  description: "A live 3D Gaussian-splat Buddhabrot renderer powered by WebGPU.",
 };
 
 export default function Home() {
-  return <OrbitLab />;
+  return <BuddhabrotSplat />;
 }
