@@ -21,8 +21,9 @@ type EngineSettings = {
 };
 
 const MAX_PARTICLES = 16384;
-const MAX_ITERATIONS = 8192;
-const MAX_POINT_BUDGET = 16_777_216;
+const MAX_ITERATIONS = 1_048_576;
+const FRAME_BATCH = 256;
+const MAX_FRAME_POINTS = MAX_PARTICLES * FRAME_BATCH;
 const WORKGROUP_SIZE = 64;
 
 const computeShader = /* wgsl */ `
@@ -32,14 +33,32 @@ struct Params {
   zoom: f32,
   particleCount: u32,
   iterations: u32,
-  time: f32,
+  batchIterations: u32,
+  generation: u32,
   spread: f32,
+  pad0: f32,
   center: vec2f,
   pad: vec2f,
 }
 
+struct OrbitPoint {
+  position: vec2f,
+  stepT: f32,
+  pad: f32,
+}
+
+struct OrbitState {
+  z: vec2f,
+  sampleC: vec2f,
+  step: u32,
+  generation: u32,
+  cycle: u32,
+  alive: u32,
+}
+
 @group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read_write> vertices: array<vec2f>;
+@group(0) @binding(1) var<storage, read_write> vertices: array<OrbitPoint>;
+@group(0) @binding(2) var<storage, read_write> states: array<OrbitState>;
 
 fn hash(v: u32) -> f32 {
   var x = v;
@@ -59,22 +78,38 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let particle = id.x;
   if (particle >= params.particleCount) { return; }
 
-  let h1 = hash(particle * 2u + u32(params.time * 977.0));
-  let h2 = hash(particle * 2u + 1u + u32(params.time * 577.0));
-  let jitter = vec2f(h1, h2) * 2.0 - 1.0;
-  let sampleC = params.c + jitter * params.spread;
-  var z = vec2f(0.0);
+  var state = states[particle];
+  let newGeneration = state.generation != params.generation;
+  let needsRestart = newGeneration || state.alive == 0u || state.step >= params.iterations;
+  if (needsRestart) {
+    state.cycle = select(state.cycle + 1u, 0u, newGeneration);
+    let seed = particle * 0x9e3779b9u ^ params.generation * 0x85ebca6bu ^ state.cycle * 0xc2b2ae35u;
+    let jitter = vec2f(hash(seed), hash(seed ^ 0x68bc21ebu)) * 2.0 - 1.0;
+    state.z = vec2f(0.0);
+    state.sampleC = params.c + jitter * params.spread;
+    state.step = 0u;
+    state.generation = params.generation;
+    state.alive = 1u;
+  }
 
-  for (var step = 0u; step < params.iterations; step++) {
-    let slot = particle * params.iterations + step;
-    if (dot(z, z) > 4.0) {
-      vertices[slot] = vec2f(4.0, 4.0);
+  for (var localStep = 0u; localStep < params.batchIterations; localStep++) {
+    let slot = particle * params.batchIterations + localStep;
+    if (state.alive == 0u || state.step >= params.iterations) {
+      vertices[slot] = OrbitPoint(vec2f(4.0, 4.0), 0.0, 0.0);
       continue;
     }
 
-    z = vec2f(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + sampleC;
-    vertices[slot] = toClip(z);
+    let z = vec2f(
+      state.z.x * state.z.x - state.z.y * state.z.y,
+      2.0 * state.z.x * state.z.y,
+    ) + state.sampleC;
+    state.z = z;
+    let stepT = f32(state.step) / f32(max(params.iterations - 1u, 1u));
+    vertices[slot] = OrbitPoint(toClip(z), stepT, 0.0);
+    state.step += 1u;
+    if (dot(z, z) > 4.0) { state.alive = 0u; }
   }
+  states[particle] = state;
 }
 `;
 
@@ -96,11 +131,10 @@ struct VSOut {
 }
 
 @vertex
-fn vs(@location(0) position: vec2f, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
+fn vs(@location(0) position: vec2f, @location(1) stepT: f32) -> VSOut {
   var out: VSOut;
   out.position = vec4f(position, 0.0, 1.0);
-  let t = f32(vertexIndex % u32(style.iterations)) / style.iterations;
-  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), t + style.hue);
+  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue);
   return out;
 }
 
@@ -131,20 +165,19 @@ struct VSOut {
 @vertex
 fn vs(
   @location(0) center: vec2f,
+  @location(1) stepT: f32,
   @builtin(vertex_index) vertexIndex: u32,
-  @builtin(instance_index) instanceIndex: u32,
 ) -> VSOut {
   let corners = array<vec2f, 6>(
     vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
     vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
   );
   let corner = corners[vertexIndex];
-  let t = f32(instanceIndex % u32(style.iterations)) / style.iterations;
-  let diameter = clamp(style.pointSize * exp2(t * style.sizeSlope), 0.2, 24.0);
+  let diameter = clamp(style.pointSize * exp2(stepT * style.sizeSlope), 0.2, 24.0);
   let clipOffset = corner * diameter / style.resolution;
   var out: VSOut;
   out.position = vec4f(center + clipOffset, 0.0, 1.0);
-  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), t + style.hue);
+  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue);
   out.local = corner;
   return out;
 }
@@ -213,13 +246,16 @@ function formatCount(value: number) {
 function escapeLabel(cr: number, ci: number, max: number) {
   let zr = 0;
   let zi = 0;
-  for (let i = 0; i < max; i++) {
+  const probeDepth = Math.min(max, 2048);
+  for (let i = 0; i < probeDepth; i++) {
     const nextR = zr * zr - zi * zi + cr;
     zi = 2 * zr * zi + ci;
     zr = nextR;
     if (zr * zr + zi * zi > 4) return `Escapes after ${i + 1} iterations`;
   }
-  return `Bounded through ${max} iterations`;
+  return max > probeDepth
+    ? `No escape in the first ${probeDepth.toLocaleString()} iterations`
+    : `Bounded through ${max.toLocaleString()} iterations`;
 }
 
 export default function OrbitLab() {
@@ -227,12 +263,12 @@ export default function OrbitLab() {
   const engineRef = useRef<{ update: (next: Partial<EngineSettings>) => void; reset: () => void } | null>(null);
   const pointRef = useRef({ x: -0.74364, y: 0.13183 });
   const settingsRef = useRef<EngineSettings>({
-    iterations: 512,
+    iterations: 32768,
     density: 13,
     persistence: 94,
     pointSize: 0.65,
-    sizeSlope: 0,
-    halo: true,
+    sizeSlope: -3,
+    halo: false,
     targetFps: 60,
     adaptive: true,
   });
@@ -275,8 +311,12 @@ export default function OrbitLab() {
       const usage = (globalThis as any).GPUBufferUsage;
       const textureUsage = (globalThis as any).GPUTextureUsage;
       const vertexBuffer = device.createBuffer({
-        size: MAX_POINT_BUDGET * 8,
+        size: MAX_FRAME_POINTS * 16,
         usage: usage.STORAGE | usage.VERTEX,
+      });
+      const stateBuffer = device.createBuffer({
+        size: MAX_PARTICLES * 32,
+        usage: usage.STORAGE,
       });
       const paramsBuffer = device.createBuffer({ size: 64, usage: usage.UNIFORM | usage.COPY_DST });
       const orbitStyleBuffer = device.createBuffer({ size: 32, usage: usage.UNIFORM | usage.COPY_DST });
@@ -297,7 +337,13 @@ export default function OrbitLab() {
         vertex: {
           module: orbitModule,
           entryPoint: "vs",
-          buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }],
+          buffers: [{
+            arrayStride: 16,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x2" },
+              { shaderLocation: 1, offset: 8, format: "float32" },
+            ],
+          }],
         },
         fragment: {
           module: orbitModule,
@@ -318,9 +364,12 @@ export default function OrbitLab() {
           module: quadOrbitModule,
           entryPoint: "vs",
           buffers: [{
-            arrayStride: 8,
+            arrayStride: 16,
             stepMode: "instance",
-            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }],
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x2" },
+              { shaderLocation: 1, offset: 8, format: "float32" },
+            ],
           }],
         },
         fragment: {
@@ -354,6 +403,7 @@ export default function OrbitLab() {
         entries: [
           { binding: 0, resource: { buffer: paramsBuffer } },
           { binding: 1, resource: { buffer: vertexBuffer } },
+          { binding: 2, resource: { buffer: stateBuffer } },
         ],
       });
       const orbitBindGroup = device.createBindGroup({
@@ -374,12 +424,17 @@ export default function OrbitLab() {
       let currentParticles = Math.min(MAX_PARTICLES, 2 ** settingsRef.current.density);
       let viewCenter = { x: -0.62, y: 0 };
       let zoom = 1;
+      let generation = 1;
       let dragging = false;
       let lastPointer = { x: 0, y: 0 };
       let frameCount = 0;
       let lastStatTime = performance.now();
       let lastFrameTime = performance.now();
       let smoothFrameMs = 16.7;
+
+      function bumpGeneration() {
+        generation = generation === 0xffffffff ? 1 : generation + 1;
+      }
 
       function makeTextureBindGroup(pipeline: any, texture: any) {
         return device.createBindGroup({
@@ -454,11 +509,13 @@ export default function OrbitLab() {
           viewCenter.x -= dx * 4.7 * (rect.width / rect.height) / zoom;
           viewCenter.y += dy * 4.7 / zoom;
           lastPointer = { x: event.clientX, y: event.clientY };
+          bumpGeneration();
           clearAccumulation();
           return;
         }
         const next = toComplex(event.clientX, event.clientY);
         pointRef.current = next;
+        bumpGeneration();
         setPoint(next);
       };
       const onWheel = (event: WheelEvent) => {
@@ -468,6 +525,7 @@ export default function OrbitLab() {
         const after = toComplex(event.clientX, event.clientY);
         viewCenter.x += before.x - after.x;
         viewCenter.y += before.y - after.y;
+        bumpGeneration();
         clearAccumulation();
       };
       canvas.addEventListener("pointerdown", onPointerDown);
@@ -483,17 +541,17 @@ export default function OrbitLab() {
 
       engineRef.current = {
         update(next) {
-          const nextIterations = next.iterations ?? settingsRef.current.iterations;
-          const depthCap = Math.max(64, Math.floor(MAX_POINT_BUDGET / nextIterations / 64) * 64);
-          if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, depthCap, 2 ** next.density);
+          if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, 2 ** next.density);
           if ((next.pointSize !== undefined && next.pointSize > 1) || (next.sizeSlope !== undefined && Math.abs(next.sizeSlope) > 0.001)) {
             currentParticles = Math.max(512, Math.floor(currentParticles / 4 / 64) * 64);
           }
+          if (next.iterations !== undefined || next.density !== undefined) bumpGeneration();
           if (next.persistence !== undefined || next.iterations !== undefined || next.pointSize !== undefined || next.sizeSlope !== undefined || next.halo !== undefined) clearAccumulation();
         },
         reset() {
           viewCenter = { x: -0.62, y: 0 };
           zoom = 1;
+          bumpGeneration();
           clearAccumulation();
         },
       };
@@ -506,8 +564,7 @@ export default function OrbitLab() {
         frameCount++;
 
         const cfg = settingsRef.current;
-        const depthCap = Math.max(64, Math.floor(MAX_POINT_BUDGET / cfg.iterations / 64) * 64);
-        const particleCap = Math.min(MAX_PARTICLES, 2 ** cfg.density, depthCap);
+        const particleCap = Math.min(MAX_PARTICLES, 2 ** cfg.density);
         currentParticles = Math.min(currentParticles, particleCap);
         if (cfg.adaptive && frameCount % 30 === 0) {
           const targetMs = 1000 / cfg.targetFps;
@@ -524,10 +581,12 @@ export default function OrbitLab() {
         params[3] = zoom;
         new Uint32Array(params.buffer)[4] = currentParticles;
         new Uint32Array(params.buffer)[5] = cfg.iterations;
-        params[6] = now * 0.001;
-        params[7] = 0.014 / Math.sqrt(zoom);
-        params[8] = viewCenter.x;
-        params[9] = viewCenter.y;
+        new Uint32Array(params.buffer)[6] = FRAME_BATCH;
+        new Uint32Array(params.buffer)[7] = generation;
+        params[8] = 0.014 / Math.sqrt(zoom);
+        params[9] = 0;
+        params[10] = viewCenter.x;
+        params[11] = viewCenter.y;
         device.queue.writeBuffer(paramsBuffer, 0, params);
 
         const baseAlpha = Math.min(0.026, 1.05 / Math.sqrt(currentParticles));
@@ -567,7 +626,7 @@ export default function OrbitLab() {
           colorAttachments: [{ view: destination.createView(), loadOp: "load", storeOp: "store" }],
         });
         orbitPass.setVertexBuffer(0, vertexBuffer);
-        const pointCount = currentParticles * cfg.iterations;
+        const pointCount = currentParticles * FRAME_BATCH;
         if (cfg.pointSize <= 1 && Math.abs(cfg.sizeSlope) < 0.001) {
           orbitPass.setPipeline(orbitPipeline);
           orbitPass.setBindGroup(0, orbitBindGroup);
@@ -591,7 +650,7 @@ export default function OrbitLab() {
 
         if (now - lastStatTime > 500) {
           const fps = 1000 / smoothFrameMs;
-          const samples = currentParticles * cfg.iterations;
+          const samples = currentParticles * FRAME_BATCH;
           setStats({ fps, samples, throughput: samples * fps, particles: currentParticles });
           lastStatTime = now;
         }
@@ -611,6 +670,7 @@ export default function OrbitLab() {
         canvas.removeEventListener("wheel", onWheel);
         textures.forEach((texture) => texture.destroy());
         vertexBuffer.destroy();
+        stateBuffer.destroy();
         paramsBuffer.destroy();
         orbitStyleBuffer.destroy();
         fadeBuffer.destroy();
@@ -656,9 +716,9 @@ export default function OrbitLab() {
           <label className="controlRow">
             <span className="controlHead">
               <span className="controlLabel">Orbit depth</span>
-              <span className="controlValue">{settings.iterations} iterations</span>
+              <span className="controlValue">{settings.iterations.toLocaleString()} total · {FRAME_BATCH}/frame</span>
             </span>
-            <input className="range" type="range" min="5" max="13" step="1" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: 2 ** Number(event.target.value) })} />
+            <input className="range" type="range" min="5" max="20" step="1" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: 2 ** Number(event.target.value) })} />
           </label>
 
           <label className="controlRow">
