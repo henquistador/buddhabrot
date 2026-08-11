@@ -20,9 +20,9 @@ type EngineSettings = {
   adaptive: boolean;
 };
 
-const MAX_PARTICLES = 16384;
+const MAX_PARTICLES = 8192;
 const MAX_ITERATIONS = 1_048_576;
-const FRAME_BATCH = 256;
+const FRAME_BATCH = 128;
 const MAX_FRAME_POINTS = MAX_PARTICLES * FRAME_BATCH;
 const WORKGROUP_SIZE = 64;
 
@@ -134,7 +134,8 @@ struct VSOut {
 fn vs(@location(0) position: vec2f, @location(1) stepT: f32) -> VSOut {
   var out: VSOut;
   out.position = vec4f(position, 0.0, 1.0);
-  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue);
+  let subpixelEnergy = min(1.0, exp2(stepT * style.sizeSlope));
+  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue) * subpixelEnergy;
   return out;
 }
 
@@ -263,8 +264,8 @@ export default function OrbitLab() {
   const engineRef = useRef<{ update: (next: Partial<EngineSettings>) => void; reset: () => void } | null>(null);
   const pointRef = useRef({ x: -0.74364, y: 0.13183 });
   const settingsRef = useRef<EngineSettings>({
-    iterations: 32768,
-    density: 13,
+    iterations: 131072,
+    density: 12,
     persistence: 94,
     pointSize: 0.65,
     sizeSlope: -3,
@@ -431,6 +432,7 @@ export default function OrbitLab() {
       let lastStatTime = performance.now();
       let lastFrameTime = performance.now();
       let smoothFrameMs = 16.7;
+      let pageVisible = !document.hidden;
 
       function bumpGeneration() {
         generation = generation === 0xffffffff ? 1 : generation + 1;
@@ -449,8 +451,7 @@ export default function OrbitLab() {
 
       function resize() {
         if (!canvas) return;
-        // Supersample low-DPI displays so a one-device-pixel point stays visually tiny.
-        const dpr = Math.max(1.35, Math.min(window.devicePixelRatio || 1, 2));
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect.width * dpr));
         const height = Math.max(1, Math.round(rect.height * dpr));
@@ -539,10 +540,23 @@ export default function OrbitLab() {
       resize();
       clearAccumulation();
 
+      const onVisibilityChange = () => {
+        pageVisible = !document.hidden;
+        if (!pageVisible && frame) {
+          cancelAnimationFrame(frame);
+          frame = 0;
+        } else if (pageVisible && !frame && !disposed) {
+          lastFrameTime = performance.now();
+          smoothFrameMs = 16.7;
+          frame = requestAnimationFrame(draw);
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+
       engineRef.current = {
         update(next) {
           if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, 2 ** next.density);
-          if ((next.pointSize !== undefined && next.pointSize > 1) || (next.sizeSlope !== undefined && Math.abs(next.sizeSlope) > 0.001)) {
+          if ((next.pointSize !== undefined || next.sizeSlope !== undefined) && (settingsRef.current.pointSize > 1 || settingsRef.current.sizeSlope > 0.001)) {
             currentParticles = Math.max(512, Math.floor(currentParticles / 4 / 64) * 64);
           }
           if (next.iterations !== undefined || next.density !== undefined) bumpGeneration();
@@ -557,7 +571,8 @@ export default function OrbitLab() {
       };
 
       function draw(now: number) {
-        if (disposed || !textures.length) return;
+        frame = 0;
+        if (disposed || !pageVisible || !textures.length) return;
         const delta = now - lastFrameTime;
         lastFrameTime = now;
         smoothFrameMs = smoothFrameMs * 0.92 + delta * 0.08;
@@ -627,7 +642,7 @@ export default function OrbitLab() {
         });
         orbitPass.setVertexBuffer(0, vertexBuffer);
         const pointCount = currentParticles * FRAME_BATCH;
-        if (cfg.pointSize <= 1 && Math.abs(cfg.sizeSlope) < 0.001) {
+        if (cfg.pointSize <= 1 && cfg.sizeSlope <= 0.001) {
           orbitPass.setPipeline(orbitPipeline);
           orbitPass.setBindGroup(0, orbitBindGroup);
           orbitPass.draw(pointCount);
@@ -654,15 +669,16 @@ export default function OrbitLab() {
           setStats({ fps, samples, throughput: samples * fps, particles: currentParticles });
           lastStatTime = now;
         }
-        frame = requestAnimationFrame(draw);
+        if (pageVisible) frame = requestAnimationFrame(draw);
       }
 
-      frame = requestAnimationFrame(draw);
+      if (pageVisible) frame = requestAnimationFrame(draw);
       device.lost.then(() => {
         if (!disposed) setError("The GPU connection was lost. Reload the page to restart the engine.");
       });
 
       return () => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         canvas.removeEventListener("pointerdown", onPointerDown);
         canvas.removeEventListener("pointerup", onPointerUp);
         canvas.removeEventListener("pointercancel", onPointerUp);
@@ -726,7 +742,7 @@ export default function OrbitLab() {
               <span className="controlLabel">Seed field</span>
               <span className="controlValue">{formatCount(2 ** settings.density)} max samples</span>
             </span>
-            <input className="range" type="range" min="9" max="14" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
+            <input className="range" type="range" min="9" max="13" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
           </label>
 
           <label className="controlRow">

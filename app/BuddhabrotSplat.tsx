@@ -26,19 +26,19 @@ type EngineSettings = {
   adaptive: boolean;
 };
 
-const MAX_SEEDS = 8192;
-const MAX_SPLATS = 2_097_152;
+const MAX_SEEDS = 4096;
+const MAX_SPLATS = 524_288;
 const WORKGROUP_SIZE = 64;
 const INITIAL_SETTINGS: EngineSettings = {
   iterations: 256,
-  density: 12,
+  density: 10,
   persistence: 80,
   splatScale: 1,
   stretch: 0.72,
   volumeDepth: 2.2,
   seedRadius: 1.72,
-  bloom: true,
-  autoRotate: true,
+  bloom: false,
+  autoRotate: false,
   targetFps: 60,
   adaptive: true,
 };
@@ -397,6 +397,7 @@ export default function BuddhabrotSplat() {
       let lastStatTime = performance.now();
       let lastFrameTime = performance.now();
       let smoothFrameMs = 16.7;
+      let pageVisible = !document.hidden;
 
       function makeTextureBindGroup(pipeline: any, texture: any) {
         return device.createBindGroup({
@@ -411,7 +412,7 @@ export default function BuddhabrotSplat() {
 
       function resize() {
         if (!canvas) return;
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect.width * dpr));
         const height = Math.max(1, Math.round(rect.height * dpr));
@@ -473,6 +474,19 @@ export default function BuddhabrotSplat() {
       ro.observe(canvas);
       resize();
 
+      const onVisibilityChange = () => {
+        pageVisible = !document.hidden;
+        if (!pageVisible && frame) {
+          cancelAnimationFrame(frame);
+          frame = 0;
+        } else if (pageVisible && !frame && !disposed) {
+          lastFrameTime = performance.now();
+          smoothFrameMs = 16.7;
+          frame = requestAnimationFrame(draw);
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+
       engineRef.current = {
         update(next) {
           const cfg = settingsRef.current;
@@ -491,7 +505,8 @@ export default function BuddhabrotSplat() {
       };
 
       function draw(now: number) {
-        if (disposed || !textures.length) return;
+        frame = 0;
+        if (disposed || !pageVisible || !textures.length) return;
         const delta = now - lastFrameTime;
         lastFrameTime = now;
         smoothFrameMs = smoothFrameMs * 0.92 + delta * 0.08;
@@ -580,15 +595,16 @@ export default function BuddhabrotSplat() {
           setStats({ fps, splats: splatSlots, throughput: splatSlots * fps, seeds: currentSeeds });
           lastStatTime = now;
         }
-        frame = requestAnimationFrame(draw);
+        if (pageVisible) frame = requestAnimationFrame(draw);
       }
 
-      frame = requestAnimationFrame(draw);
+      if (pageVisible) frame = requestAnimationFrame(draw);
       device.lost.then(() => {
         if (!disposed) setError("The GPU connection was lost. Reload to restart the engine.");
       });
 
       return () => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
         canvas.removeEventListener("pointerdown", onPointerDown);
         canvas.removeEventListener("pointerup", onPointerUp);
         canvas.removeEventListener("pointercancel", onPointerUp);
@@ -651,7 +667,7 @@ export default function BuddhabrotSplat() {
               <span className="controlLabel">Candidate seeds</span>
               <span className="controlValue">{formatCount(2 ** settings.density)} max / frame</span>
             </span>
-            <input className="range" type="range" min="8" max="13" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
+            <input className="range" type="range" min="8" max="12" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
           </label>
 
           <div className="miniControlGrid">
