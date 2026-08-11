@@ -6,7 +6,7 @@ drawn.
 
 The renderer keeps orbit generation, point drawing, trail accumulation, and
 tone mapping on the GPU. Automatic load control adjusts the seed count to hold
-60 FPS. Orbit depth ranges from 32 to 1,024 iterations.
+60 FPS. Orbit depth ranges from 32 to 8,192 iterations.
 
 ## Run locally
 
@@ -33,11 +33,11 @@ connection. The hosted production URL avoids LAN and firewall setup.
 - Move pointer: choose `c`
 - Scroll: zoom
 - Shift + drag: pan
-- Orbit depth: 32–1,024 iterations
+- Orbit depth: 32–8,192 iterations, with a fixed GPU point budget
 - Seed field: maximum nearby trajectories
 - Trail memory: accumulation fade
 - Point size: 0.25–4 px; larger values use instanced circular quads
-- View scale: 0.5×–8× magnification
+- Size slope: −3 to +3; positive values grow later iteration points
 - Halo: enable or disable neighboring-pixel bloom
 - Auto-load: adapt seed count to the 60 FPS target
 

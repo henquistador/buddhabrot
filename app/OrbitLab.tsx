@@ -14,14 +14,15 @@ type EngineSettings = {
   density: number;
   persistence: number;
   pointSize: number;
-  scale: number;
+  sizeSlope: number;
   halo: boolean;
   targetFps: number;
   adaptive: boolean;
 };
 
 const MAX_PARTICLES = 16384;
-const MAX_ITERATIONS = 1024;
+const MAX_ITERATIONS = 8192;
+const MAX_POINT_BUDGET = 16_777_216;
 const WORKGROUP_SIZE = 64;
 
 const computeShader = /* wgsl */ `
@@ -60,14 +61,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   let h1 = hash(particle * 2u + u32(params.time * 977.0));
   let h2 = hash(particle * 2u + 1u + u32(params.time * 577.0));
-  let radius = sqrt(h1) * params.spread;
-  let angle = h2 * 6.283185307;
-  let sampleC = params.c + vec2f(cos(angle), sin(angle)) * radius;
+  let jitter = vec2f(h1, h2) * 2.0 - 1.0;
+  let sampleC = params.c + jitter * params.spread;
   var z = vec2f(0.0);
 
   for (var step = 0u; step < params.iterations; step++) {
     let slot = particle * params.iterations + step;
-    if (dot(z, z) > 256.0) {
+    if (dot(z, z) > 4.0) {
       vertices[slot] = vec2f(4.0, 4.0);
       continue;
     }
@@ -85,7 +85,8 @@ struct OrbitUniforms {
   iterations: f32,
   pointSize: f32,
   resolution: vec2f,
-  pad: vec2f,
+  sizeSlope: f32,
+  pad: f32,
 }
 @group(0) @binding(0) var<uniform> style: OrbitUniforms;
 
@@ -116,7 +117,8 @@ struct OrbitUniforms {
   iterations: f32,
   pointSize: f32,
   resolution: vec2f,
-  pad: vec2f,
+  sizeSlope: f32,
+  pad: f32,
 }
 @group(0) @binding(0) var<uniform> style: OrbitUniforms;
 
@@ -137,10 +139,11 @@ fn vs(
     vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
   );
   let corner = corners[vertexIndex];
-  let clipOffset = corner * style.pointSize / style.resolution;
+  let t = f32(instanceIndex % u32(style.iterations)) / style.iterations;
+  let diameter = clamp(style.pointSize * exp2(t * style.sizeSlope), 0.2, 24.0);
+  let clipOffset = corner * diameter / style.resolution;
   var out: VSOut;
   out.position = vec4f(center + clipOffset, 0.0, 1.0);
-  let t = f32(instanceIndex % u32(style.iterations)) / style.iterations;
   out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), t + style.hue);
   out.local = corner;
   return out;
@@ -228,7 +231,7 @@ export default function OrbitLab() {
     density: 13,
     persistence: 94,
     pointSize: 0.65,
-    scale: 1,
+    sizeSlope: 0,
     halo: true,
     targetFps: 60,
     adaptive: true,
@@ -272,7 +275,7 @@ export default function OrbitLab() {
       const usage = (globalThis as any).GPUBufferUsage;
       const textureUsage = (globalThis as any).GPUTextureUsage;
       const vertexBuffer = device.createBuffer({
-        size: MAX_PARTICLES * MAX_ITERATIONS * 8,
+        size: MAX_POINT_BUDGET * 8,
         usage: usage.STORAGE | usage.VERTEX,
       });
       const paramsBuffer = device.createBuffer({ size: 64, usage: usage.UNIFORM | usage.COPY_DST });
@@ -363,6 +366,8 @@ export default function OrbitLab() {
       });
 
       let textures: any[] = [];
+      let fadeBindGroups: any[] = [];
+      let displayBindGroups: any[] = [];
       let textureSize = { width: 0, height: 0 };
       let pixelRatio = 1;
       let textureIndex = 0;
@@ -404,6 +409,8 @@ export default function OrbitLab() {
           format: "rgba16float",
           usage: textureUsage.RENDER_ATTACHMENT | textureUsage.TEXTURE_BINDING,
         }));
+        fadeBindGroups = textures.map((texture) => makeTextureBindGroup(fadePipeline, texture));
+        displayBindGroups = textures.map((texture) => makeTextureBindGroup(displayPipeline, texture));
         textureSize = { width, height };
         textureIndex = 0;
       }
@@ -425,10 +432,9 @@ export default function OrbitLab() {
         const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
         const ny = 1 - ((clientY - rect.top) / rect.height) * 2;
         const aspect = rect.width / rect.height;
-        const effectiveZoom = zoom * settingsRef.current.scale;
         return {
-          x: viewCenter.x + nx * (2.35 * aspect) / effectiveZoom,
-          y: viewCenter.y + ny * 2.35 / effectiveZoom,
+          x: viewCenter.x + nx * (2.35 * aspect) / zoom,
+          y: viewCenter.y + ny * 2.35 / zoom,
         };
       };
 
@@ -445,9 +451,8 @@ export default function OrbitLab() {
           const rect = canvas.getBoundingClientRect();
           const dx = (event.clientX - lastPointer.x) / rect.width;
           const dy = (event.clientY - lastPointer.y) / rect.height;
-          const effectiveZoom = zoom * settingsRef.current.scale;
-          viewCenter.x -= dx * 4.7 * (rect.width / rect.height) / effectiveZoom;
-          viewCenter.y += dy * 4.7 / effectiveZoom;
+          viewCenter.x -= dx * 4.7 * (rect.width / rect.height) / zoom;
+          viewCenter.y += dy * 4.7 / zoom;
           lastPointer = { x: event.clientX, y: event.clientY };
           clearAccumulation();
           return;
@@ -478,8 +483,13 @@ export default function OrbitLab() {
 
       engineRef.current = {
         update(next) {
-          if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, 2 ** next.density);
-          if (next.persistence !== undefined || next.iterations !== undefined || next.pointSize !== undefined || next.scale !== undefined || next.halo !== undefined) clearAccumulation();
+          const nextIterations = next.iterations ?? settingsRef.current.iterations;
+          const depthCap = Math.max(64, Math.floor(MAX_POINT_BUDGET / nextIterations / 64) * 64);
+          if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, depthCap, 2 ** next.density);
+          if ((next.pointSize !== undefined && next.pointSize > 1) || (next.sizeSlope !== undefined && Math.abs(next.sizeSlope) > 0.001)) {
+            currentParticles = Math.max(512, Math.floor(currentParticles / 4 / 64) * 64);
+          }
+          if (next.persistence !== undefined || next.iterations !== undefined || next.pointSize !== undefined || next.sizeSlope !== undefined || next.halo !== undefined) clearAccumulation();
         },
         reset() {
           viewCenter = { x: -0.62, y: 0 };
@@ -496,24 +506,26 @@ export default function OrbitLab() {
         frameCount++;
 
         const cfg = settingsRef.current;
+        const depthCap = Math.max(64, Math.floor(MAX_POINT_BUDGET / cfg.iterations / 64) * 64);
+        const particleCap = Math.min(MAX_PARTICLES, 2 ** cfg.density, depthCap);
+        currentParticles = Math.min(currentParticles, particleCap);
         if (cfg.adaptive && frameCount % 30 === 0) {
           const targetMs = 1000 / cfg.targetFps;
           if (smoothFrameMs > targetMs * 1.12) currentParticles = Math.max(512, Math.floor(currentParticles * 0.82 / 64) * 64);
-          else if (smoothFrameMs < targetMs * 0.82) currentParticles = Math.min(MAX_PARTICLES, 2 ** cfg.density, Math.ceil(currentParticles * 1.12 / 64) * 64);
+          else if (smoothFrameMs < targetMs * 0.82) currentParticles = Math.min(particleCap, Math.ceil(currentParticles * 1.12 / 64) * 64);
         }
 
         const aspect = textureSize.width / textureSize.height;
         const point = pointRef.current;
-        const effectiveZoom = zoom * cfg.scale;
         const params = new Float32Array(16);
         params[0] = point.x;
         params[1] = point.y;
         params[2] = aspect;
-        params[3] = effectiveZoom;
+        params[3] = zoom;
         new Uint32Array(params.buffer)[4] = currentParticles;
         new Uint32Array(params.buffer)[5] = cfg.iterations;
         params[6] = now * 0.001;
-        params[7] = 0.014 / Math.sqrt(effectiveZoom);
+        params[7] = 0.014 / Math.sqrt(zoom);
         params[8] = viewCenter.x;
         params[9] = viewCenter.y;
         device.queue.writeBuffer(paramsBuffer, 0, params);
@@ -528,14 +540,13 @@ export default function OrbitLab() {
           cfg.pointSize * pixelRatio,
           textureSize.width,
           textureSize.height,
-          0,
+          cfg.sizeSlope,
           0,
         ]));
         const fade = 0.84 + cfg.persistence * 0.00165;
         const gain = 1.5;
         device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([fade, gain, cfg.halo ? 1 : 0, 0]));
 
-        const source = textures[textureIndex];
         const destination = textures[1 - textureIndex];
         const encoder = device.createCommandEncoder();
         const compute = encoder.beginComputePass();
@@ -548,7 +559,7 @@ export default function OrbitLab() {
           colorAttachments: [{ view: destination.createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 0 } }],
         });
         fadePass.setPipeline(fadePipeline);
-        fadePass.setBindGroup(0, makeTextureBindGroup(fadePipeline, source));
+        fadePass.setBindGroup(0, fadeBindGroups[textureIndex]);
         fadePass.draw(3);
         fadePass.end();
 
@@ -557,7 +568,7 @@ export default function OrbitLab() {
         });
         orbitPass.setVertexBuffer(0, vertexBuffer);
         const pointCount = currentParticles * cfg.iterations;
-        if (cfg.pointSize <= 1) {
+        if (cfg.pointSize <= 1 && Math.abs(cfg.sizeSlope) < 0.001) {
           orbitPass.setPipeline(orbitPipeline);
           orbitPass.setBindGroup(0, orbitBindGroup);
           orbitPass.draw(pointCount);
@@ -572,7 +583,7 @@ export default function OrbitLab() {
           colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
         });
         displayPass.setPipeline(displayPipeline);
-        displayPass.setBindGroup(0, makeTextureBindGroup(displayPipeline, destination));
+        displayPass.setBindGroup(0, displayBindGroups[1 - textureIndex]);
         displayPass.draw(3);
         displayPass.end();
         device.queue.submit([encoder.finish()]);
@@ -647,7 +658,7 @@ export default function OrbitLab() {
               <span className="controlLabel">Orbit depth</span>
               <span className="controlValue">{settings.iterations} iterations</span>
             </span>
-            <input className="range" type="range" min="32" max={MAX_ITERATIONS} step="32" value={settings.iterations} onChange={(event) => patchSettings({ iterations: Number(event.target.value) })} />
+            <input className="range" type="range" min="5" max="13" step="1" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: 2 ** Number(event.target.value) })} />
           </label>
 
           <label className="controlRow">
@@ -677,10 +688,10 @@ export default function OrbitLab() {
 
             <label className="controlRow miniControl">
               <span className="controlHead">
-                <span className="controlLabel">View scale</span>
-                <span className="controlValue">{settings.scale.toFixed(2)}×</span>
+                <span className="controlLabel">Size slope</span>
+                <span className="controlValue">{settings.sizeSlope > 0 ? "+" : ""}{settings.sizeSlope.toFixed(2)}</span>
               </span>
-              <input className="range" type="range" min="0.5" max="8" step="0.05" value={settings.scale} onChange={(event) => patchSettings({ scale: Number(event.target.value) })} />
+              <input className="range" type="range" min="-3" max="3" step="0.1" value={settings.sizeSlope} onChange={(event) => patchSettings({ sizeSlope: Number(event.target.value) })} />
             </label>
           </div>
 

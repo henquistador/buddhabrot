@@ -26,7 +26,7 @@ test("server-renders Orbit Lab without the disposable starter", async () => {
   assert.match(html, /Interactive Mandelbrot orbit field/);
   assert.match(html, /Auto · 60 FPS/);
   assert.match(html, /Point size/);
-  assert.match(html, /View scale/);
+  assert.match(html, /Size slope/);
   assert.match(html, /Halo/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
