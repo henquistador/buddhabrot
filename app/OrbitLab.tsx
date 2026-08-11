@@ -17,8 +17,8 @@ type EngineSettings = {
   adaptive: boolean;
 };
 
-const MAX_PARTICLES = 32768;
-const MAX_ITERATIONS = 384;
+const MAX_PARTICLES = 16384;
+const MAX_ITERATIONS = 1024;
 const WORKGROUP_SIZE = 64;
 
 const computeShader = /* wgsl */ `
@@ -62,9 +62,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let sampleC = params.c + vec2f(cos(angle), sin(angle)) * radius;
   var z = vec2f(0.0);
 
-  for (var step = 0u; step < ${MAX_ITERATIONS}u; step++) {
-    let slot = particle * ${MAX_ITERATIONS}u + step;
-    if (step >= params.iterations || dot(z, z) > 256.0) {
+  for (var step = 0u; step < params.iterations; step++) {
+    let slot = particle * params.iterations + step;
+    if (dot(z, z) > 256.0) {
       vertices[slot] = vec2f(4.0, 4.0);
       continue;
     }
@@ -76,7 +76,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 `;
 
 const orbitShader = /* wgsl */ `
-struct OrbitUniforms { alpha: f32, hue: f32, pad: vec2f }
+struct OrbitUniforms { alpha: f32, hue: f32, iterations: f32, pad: f32 }
 @group(0) @binding(0) var<uniform> style: OrbitUniforms;
 
 struct VSOut {
@@ -88,7 +88,7 @@ struct VSOut {
 fn vs(@location(0) position: vec2f, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
   var out: VSOut;
   out.position = vec4f(position, 0.0, 1.0);
-  let t = f32(vertexIndex % ${MAX_ITERATIONS}u) / f32(${MAX_ITERATIONS});
+  let t = f32(vertexIndex % u32(style.iterations)) / style.iterations;
   out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), t + style.hue);
   return out;
 }
@@ -157,7 +157,7 @@ export default function OrbitLab() {
   const engineRef = useRef<{ update: (next: Partial<EngineSettings>) => void; reset: () => void } | null>(null);
   const pointRef = useRef({ x: -0.74364, y: 0.13183 });
   const settingsRef = useRef<EngineSettings>({
-    iterations: 192,
+    iterations: 512,
     density: 13,
     persistence: 94,
     targetFps: 60,
@@ -289,7 +289,8 @@ export default function OrbitLab() {
 
       function resize() {
         if (!canvas) return;
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.7);
+        // Supersample low-DPI displays so a one-device-pixel point stays visually tiny.
+        const dpr = Math.max(1.35, Math.min(window.devicePixelRatio || 1, 2));
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect.width * dpr));
         const height = Math.max(1, Math.round(rect.height * dpr));
@@ -413,10 +414,10 @@ export default function OrbitLab() {
         params[9] = viewCenter.y;
         device.queue.writeBuffer(paramsBuffer, 0, params);
 
-        const alpha = Math.min(0.035, 1.4 / Math.sqrt(currentParticles));
-        device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([alpha, (now * 0.00002) % 0.15, 0, 0]));
+        const alpha = Math.min(0.026, 1.05 / Math.sqrt(currentParticles));
+        device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([alpha, (now * 0.00002) % 0.15, cfg.iterations, 0]));
         const fade = 0.84 + cfg.persistence * 0.00165;
-        const gain = 1.8;
+        const gain = 1.5;
         device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([fade, gain, 0, 0]));
 
         const source = textures[textureIndex];
@@ -524,7 +525,7 @@ export default function OrbitLab() {
               <span className="controlLabel">Orbit depth</span>
               <span className="controlValue">{settings.iterations} iterations</span>
             </span>
-            <input className="range" type="range" min="32" max={MAX_ITERATIONS} step="16" value={settings.iterations} onChange={(event) => patchSettings({ iterations: Number(event.target.value) })} />
+            <input className="range" type="range" min="32" max={MAX_ITERATIONS} step="32" value={settings.iterations} onChange={(event) => patchSettings({ iterations: Number(event.target.value) })} />
           </label>
 
           <label className="controlRow">
@@ -532,7 +533,7 @@ export default function OrbitLab() {
               <span className="controlLabel">Seed field</span>
               <span className="controlValue">{formatCount(2 ** settings.density)} max samples</span>
             </span>
-            <input className="range" type="range" min="9" max="15" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
+            <input className="range" type="range" min="9" max="14" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
           </label>
 
           <label className="controlRow">
