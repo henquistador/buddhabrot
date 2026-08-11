@@ -13,6 +13,9 @@ type EngineSettings = {
   iterations: number;
   density: number;
   persistence: number;
+  pointSize: number;
+  scale: number;
+  halo: boolean;
   targetFps: number;
   adaptive: boolean;
 };
@@ -76,7 +79,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 `;
 
 const orbitShader = /* wgsl */ `
-struct OrbitUniforms { alpha: f32, hue: f32, iterations: f32, pad: f32 }
+struct OrbitUniforms {
+  alpha: f32,
+  hue: f32,
+  iterations: f32,
+  pointSize: f32,
+  resolution: vec2f,
+  pad: vec2f,
+}
 @group(0) @binding(0) var<uniform> style: OrbitUniforms;
 
 struct VSOut {
@@ -99,8 +109,54 @@ fn fs(in: VSOut) -> @location(0) vec4f {
 }
 `;
 
+const quadOrbitShader = /* wgsl */ `
+struct OrbitUniforms {
+  alpha: f32,
+  hue: f32,
+  iterations: f32,
+  pointSize: f32,
+  resolution: vec2f,
+  pad: vec2f,
+}
+@group(0) @binding(0) var<uniform> style: OrbitUniforms;
+
+struct VSOut {
+  @builtin(position) position: vec4f,
+  @location(0) color: vec3f,
+  @location(1) local: vec2f,
+}
+
+@vertex
+fn vs(
+  @location(0) center: vec2f,
+  @builtin(vertex_index) vertexIndex: u32,
+  @builtin(instance_index) instanceIndex: u32,
+) -> VSOut {
+  let corners = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+  );
+  let corner = corners[vertexIndex];
+  let clipOffset = corner * style.pointSize / style.resolution;
+  var out: VSOut;
+  out.position = vec4f(center + clipOffset, 0.0, 1.0);
+  let t = f32(instanceIndex % u32(style.iterations)) / style.iterations;
+  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), t + style.hue);
+  out.local = corner;
+  return out;
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4f {
+  let radius2 = dot(in.local, in.local);
+  if (radius2 > 1.0) { discard; }
+  let coverage = 1.0 - smoothstep(0.62, 1.0, radius2);
+  return vec4f(in.color * style.alpha * coverage, style.alpha * coverage);
+}
+`;
+
 const fullscreenShader = /* wgsl */ `
-struct FadeUniforms { fade: f32, gain: f32, pad: vec2f }
+struct FadeUniforms { fade: f32, gain: f32, halo: f32, pad: f32 }
 @group(0) @binding(0) var previous: texture_2d<f32>;
 @group(0) @binding(1) var previousSampler: sampler;
 @group(0) @binding(2) var<uniform> settings: FadeUniforms;
@@ -126,7 +182,18 @@ fn fadeFs(in: VSOut) -> @location(0) vec4f {
 
 @fragment
 fn displayFs(in: VSOut) -> @location(0) vec4f {
-  let raw = textureSample(previous, previousSampler, in.uv).rgb * settings.gain;
+  let center = textureSample(previous, previousSampler, in.uv).rgb;
+  var raw = center * settings.gain;
+  if (settings.halo > 0.5) {
+    let texel = 1.0 / vec2f(textureDimensions(previous));
+    let neighbors = (
+      textureSample(previous, previousSampler, in.uv + vec2f(texel.x, 0.0)).rgb +
+      textureSample(previous, previousSampler, in.uv - vec2f(texel.x, 0.0)).rgb +
+      textureSample(previous, previousSampler, in.uv + vec2f(0.0, texel.y)).rgb +
+      textureSample(previous, previousSampler, in.uv - vec2f(0.0, texel.y)).rgb
+    ) * 0.25;
+    raw = (center + neighbors * 0.48) * settings.gain;
+  }
   let mapped = vec3f(1.0) - exp(-raw);
   let base = vec3f(0.016, 0.022, 0.018);
   return vec4f(base + mapped, 1.0);
@@ -160,6 +227,9 @@ export default function OrbitLab() {
     iterations: 512,
     density: 13,
     persistence: 94,
+    pointSize: 0.65,
+    scale: 1,
+    halo: true,
     targetFps: 60,
     adaptive: true,
   });
@@ -206,12 +276,13 @@ export default function OrbitLab() {
         usage: usage.STORAGE | usage.VERTEX,
       });
       const paramsBuffer = device.createBuffer({ size: 64, usage: usage.UNIFORM | usage.COPY_DST });
-      const orbitStyleBuffer = device.createBuffer({ size: 16, usage: usage.UNIFORM | usage.COPY_DST });
+      const orbitStyleBuffer = device.createBuffer({ size: 32, usage: usage.UNIFORM | usage.COPY_DST });
       const fadeBuffer = device.createBuffer({ size: 16, usage: usage.UNIFORM | usage.COPY_DST });
       const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
 
       const computeModule = device.createShaderModule({ code: computeShader });
       const orbitModule = device.createShaderModule({ code: orbitShader });
+      const quadOrbitModule = device.createShaderModule({ code: quadOrbitShader });
       const fullscreenModule = device.createShaderModule({ code: fullscreenShader });
 
       const computePipeline = device.createComputePipeline({
@@ -238,6 +309,30 @@ export default function OrbitLab() {
         },
         primitive: { topology: "point-list" },
       });
+      const quadOrbitPipeline = device.createRenderPipeline({
+        layout: "auto",
+        vertex: {
+          module: quadOrbitModule,
+          entryPoint: "vs",
+          buffers: [{
+            arrayStride: 8,
+            stepMode: "instance",
+            attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }],
+          }],
+        },
+        fragment: {
+          module: quadOrbitModule,
+          entryPoint: "fs",
+          targets: [{
+            format: "rgba16float",
+            blend: {
+              color: { srcFactor: "one", dstFactor: "one", operation: "add" },
+              alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+            },
+          }],
+        },
+        primitive: { topology: "triangle-list" },
+      });
       const fadePipeline = device.createRenderPipeline({
         layout: "auto",
         vertex: { module: fullscreenModule, entryPoint: "vs" },
@@ -262,9 +357,14 @@ export default function OrbitLab() {
         layout: orbitPipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: orbitStyleBuffer } }],
       });
+      const quadOrbitBindGroup = device.createBindGroup({
+        layout: quadOrbitPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: orbitStyleBuffer } }],
+      });
 
       let textures: any[] = [];
       let textureSize = { width: 0, height: 0 };
+      let pixelRatio = 1;
       let textureIndex = 0;
       let currentParticles = Math.min(MAX_PARTICLES, 2 ** settingsRef.current.density);
       let viewCenter = { x: -0.62, y: 0 };
@@ -294,6 +394,7 @@ export default function OrbitLab() {
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect.width * dpr));
         const height = Math.max(1, Math.round(rect.height * dpr));
+        pixelRatio = dpr;
         if (width === textureSize.width && height === textureSize.height) return;
         canvas.width = width;
         canvas.height = height;
@@ -324,9 +425,10 @@ export default function OrbitLab() {
         const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
         const ny = 1 - ((clientY - rect.top) / rect.height) * 2;
         const aspect = rect.width / rect.height;
+        const effectiveZoom = zoom * settingsRef.current.scale;
         return {
-          x: viewCenter.x + nx * (2.35 * aspect) / zoom,
-          y: viewCenter.y + ny * 2.35 / zoom,
+          x: viewCenter.x + nx * (2.35 * aspect) / effectiveZoom,
+          y: viewCenter.y + ny * 2.35 / effectiveZoom,
         };
       };
 
@@ -343,8 +445,9 @@ export default function OrbitLab() {
           const rect = canvas.getBoundingClientRect();
           const dx = (event.clientX - lastPointer.x) / rect.width;
           const dy = (event.clientY - lastPointer.y) / rect.height;
-          viewCenter.x -= dx * 4.7 * (rect.width / rect.height) / zoom;
-          viewCenter.y += dy * 4.7 / zoom;
+          const effectiveZoom = zoom * settingsRef.current.scale;
+          viewCenter.x -= dx * 4.7 * (rect.width / rect.height) / effectiveZoom;
+          viewCenter.y += dy * 4.7 / effectiveZoom;
           lastPointer = { x: event.clientX, y: event.clientY };
           clearAccumulation();
           return;
@@ -376,7 +479,7 @@ export default function OrbitLab() {
       engineRef.current = {
         update(next) {
           if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, 2 ** next.density);
-          if (next.persistence !== undefined || next.iterations !== undefined) clearAccumulation();
+          if (next.persistence !== undefined || next.iterations !== undefined || next.pointSize !== undefined || next.scale !== undefined || next.halo !== undefined) clearAccumulation();
         },
         reset() {
           viewCenter = { x: -0.62, y: 0 };
@@ -401,24 +504,36 @@ export default function OrbitLab() {
 
         const aspect = textureSize.width / textureSize.height;
         const point = pointRef.current;
+        const effectiveZoom = zoom * cfg.scale;
         const params = new Float32Array(16);
         params[0] = point.x;
         params[1] = point.y;
         params[2] = aspect;
-        params[3] = zoom;
+        params[3] = effectiveZoom;
         new Uint32Array(params.buffer)[4] = currentParticles;
         new Uint32Array(params.buffer)[5] = cfg.iterations;
         params[6] = now * 0.001;
-        params[7] = 0.014 / Math.sqrt(zoom);
+        params[7] = 0.014 / Math.sqrt(effectiveZoom);
         params[8] = viewCenter.x;
         params[9] = viewCenter.y;
         device.queue.writeBuffer(paramsBuffer, 0, params);
 
-        const alpha = Math.min(0.026, 1.05 / Math.sqrt(currentParticles));
-        device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([alpha, (now * 0.00002) % 0.15, cfg.iterations, 0]));
+        const baseAlpha = Math.min(0.026, 1.05 / Math.sqrt(currentParticles));
+        const sizeAlpha = cfg.pointSize <= 1 ? cfg.pointSize * cfg.pointSize : 1 / Math.sqrt(cfg.pointSize);
+        const alpha = baseAlpha * sizeAlpha;
+        device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([
+          alpha,
+          (now * 0.00002) % 0.15,
+          cfg.iterations,
+          cfg.pointSize * pixelRatio,
+          textureSize.width,
+          textureSize.height,
+          0,
+          0,
+        ]));
         const fade = 0.84 + cfg.persistence * 0.00165;
         const gain = 1.5;
-        device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([fade, gain, 0, 0]));
+        device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([fade, gain, cfg.halo ? 1 : 0, 0]));
 
         const source = textures[textureIndex];
         const destination = textures[1 - textureIndex];
@@ -440,10 +555,17 @@ export default function OrbitLab() {
         const orbitPass = encoder.beginRenderPass({
           colorAttachments: [{ view: destination.createView(), loadOp: "load", storeOp: "store" }],
         });
-        orbitPass.setPipeline(orbitPipeline);
-        orbitPass.setBindGroup(0, orbitBindGroup);
         orbitPass.setVertexBuffer(0, vertexBuffer);
-        orbitPass.draw(currentParticles * cfg.iterations);
+        const pointCount = currentParticles * cfg.iterations;
+        if (cfg.pointSize <= 1) {
+          orbitPass.setPipeline(orbitPipeline);
+          orbitPass.setBindGroup(0, orbitBindGroup);
+          orbitPass.draw(pointCount);
+        } else {
+          orbitPass.setPipeline(quadOrbitPipeline);
+          orbitPass.setBindGroup(0, quadOrbitBindGroup);
+          orbitPass.draw(6, pointCount);
+        }
         orbitPass.end();
 
         const displayPass = encoder.beginRenderPass({
@@ -542,6 +664,30 @@ export default function OrbitLab() {
               <span className="controlValue">{settings.persistence}%</span>
             </span>
             <input className="range" type="range" min="4" max="99" step="1" value={settings.persistence} onChange={(event) => patchSettings({ persistence: Number(event.target.value) })} />
+          </label>
+
+          <div className="miniControlGrid">
+            <label className="controlRow miniControl">
+              <span className="controlHead">
+                <span className="controlLabel">Point size</span>
+                <span className="controlValue">{settings.pointSize.toFixed(2)} px</span>
+              </span>
+              <input className="range" type="range" min="0.25" max="4" step="0.05" value={settings.pointSize} onChange={(event) => patchSettings({ pointSize: Number(event.target.value) })} />
+            </label>
+
+            <label className="controlRow miniControl">
+              <span className="controlHead">
+                <span className="controlLabel">View scale</span>
+                <span className="controlValue">{settings.scale.toFixed(2)}×</span>
+              </span>
+              <input className="range" type="range" min="0.5" max="8" step="0.05" value={settings.scale} onChange={(event) => patchSettings({ scale: Number(event.target.value) })} />
+            </label>
+          </div>
+
+          <label className="toggleRow">
+            <input type="checkbox" checked={settings.halo} onChange={(event) => patchSettings({ halo: event.target.checked })} />
+            <span>Halo</span>
+            <span className="controlValue">{settings.halo ? "On" : "Off"}</span>
           </label>
 
           <div className="buttonRow">

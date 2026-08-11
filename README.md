@@ -36,6 +36,9 @@ connection. The hosted production URL avoids LAN and firewall setup.
 - Orbit depth: 32–1,024 iterations
 - Seed field: maximum nearby trajectories
 - Trail memory: accumulation fade
+- Point size: 0.25–4 px; larger values use instanced circular quads
+- View scale: 0.5×–8× magnification
+- Halo: enable or disable neighboring-pixel bloom
 - Auto-load: adapt seed count to the 60 FPS target
 
 ## Verify

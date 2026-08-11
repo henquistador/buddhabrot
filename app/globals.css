@@ -153,17 +153,17 @@ body {
 }
 
 .controls {
-  top: 16px;
-  left: 16px;
-  width: min(326px, calc(100% - 32px));
-  padding: 16px;
+  top: 12px;
+  left: 12px;
+  width: min(286px, calc(100% - 24px));
+  padding: 12px;
 }
 
 .panelEyebrow {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   color: #5f6259;
   font-family: var(--font-geist-mono), monospace;
   font-size: 9px;
@@ -180,22 +180,22 @@ body {
 }
 
 .coordinate {
-  margin: 0 0 5px;
+  margin: 0 0 3px;
   font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(20px, 2.3vw, 31px);
+  font-size: clamp(17px, 2vw, 23px);
   font-weight: 500;
   letter-spacing: -0.06em;
   white-space: nowrap;
 }
 
 .pointState {
-  margin: 0 0 18px;
+  margin: 0 0 10px;
   color: var(--muted);
   font-size: 11px;
 }
 
 .controlRow {
-  padding: 11px 0;
+  padding: 7px 0;
   border-top: 1px solid var(--line);
 }
 
@@ -203,18 +203,18 @@ body {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 9px;
+  margin-bottom: 5px;
   gap: 12px;
 }
 
 .controlLabel {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 620;
 }
 
 .controlValue {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--muted);
 }
 
@@ -252,15 +252,15 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .button {
-  min-height: 36px;
+  min-height: 31px;
   border: 1px solid var(--ink);
   border-radius: 3px;
   background: transparent;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
   cursor: pointer;
   transition: transform 120ms ease, background 120ms ease;
@@ -277,6 +277,45 @@ body {
 
 .buttonPrimary:hover {
   background: #e3ff8d;
+}
+
+.miniControlGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.miniControl .controlHead {
+  display: block;
+  min-height: 26px;
+}
+
+.miniControl .controlLabel,
+.miniControl .controlValue {
+  display: block;
+}
+
+.miniControl .controlValue {
+  margin-top: 2px;
+}
+
+.toggleRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.toggleRow input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--acid-ink);
 }
 
 .stats {
@@ -373,7 +412,7 @@ body {
     top: 8px;
     left: 8px;
     width: calc(100% - 16px);
-    padding: 13px;
+    padding: 11px;
   }
 
   .stats {
