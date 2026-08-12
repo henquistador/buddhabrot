@@ -1,12 +1,11 @@
 {
-  "generator": "offline-buddhabrot-3dgs",
-  "candidateSamples": 10000000,
-  "mirroredSamples": 20000000,
-  "escapedSamples": 272049,
-  "maxIterations": 1048576,
-  "resolution": [800, 800, 48],
-  "volumeAxis": "normalized-orbit-progress",
-  "volumeDepth": 1.45,
-  "gaussians": 600000,
-  "splatSigma": 0.00102
+  "generator": "offline-buddhabulb-3dgs",
+  "candidateSamples": 12000000,
+  "escapedSamples": 685729,
+  "maxIterations": 96,
+  "mapPower": 8,
+  "resolution": [216, 216, 216],
+  "volumeAxis": "mandelbulb-x-y-z",
+  "gaussians": 650000,
+  "splatSigma": 0.0027268519
 }

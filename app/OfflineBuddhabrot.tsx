@@ -3,27 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import styles from "./OfflineBuddhabrot.module.css";
 
 type AssetStats = {
   candidateSamples: number;
-  mirroredSamples: number;
   escapedSamples: number;
   maxIterations: number;
   resolution: [number, number, number];
   gaussians: number;
   volumeAxis: string;
-  volumeDepth: number;
+  mapPower: number;
 };
 
 const FALLBACK_STATS: AssetStats = {
-  candidateSamples: 10_000_000,
-  mirroredSamples: 20_000_000,
-  escapedSamples: 272_049,
-  maxIterations: 1_048_576,
-  resolution: [800, 800, 48],
-  gaussians: 600_000,
-  volumeAxis: "normalized-orbit-progress",
-  volumeDepth: 1.45,
+  candidateSamples: 12_000_000,
+  escapedSamples: 685_729,
+  maxIterations: 96,
+  resolution: [216, 216, 216],
+  gaussians: 650_000,
+  volumeAxis: "mandelbulb-x-y-z",
+  mapPower: 8,
 };
 
 function compact(value: number) {
@@ -59,10 +58,10 @@ export default function OfflineBuddhabrot() {
     scene.background = new THREE.Color(0x030408);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 20);
     const view = {
-      target: new THREE.Vector3(-0.5, 0, 0),
+      target: new THREE.Vector3(0, 0, 0),
       yaw: -0.58,
       pitch: 0.28,
-      distance: 5.25,
+      distance: 4.7,
     };
     const panRight = new THREE.Vector3();
     const panUp = new THREE.Vector3();
@@ -108,10 +107,10 @@ export default function OfflineBuddhabrot() {
     let lastPointer = { x: 0, y: 0 };
 
     function resetCamera() {
-      view.target.set(-0.5, 0, 0);
+      view.target.set(0, 0, 0);
       view.yaw = -0.58;
       view.pitch = 0.28;
-      view.distance = 5.25;
+      view.distance = 4.7;
       scheduleRender();
     }
 
@@ -199,43 +198,43 @@ export default function OfflineBuddhabrot() {
   }, []);
 
   return (
-    <main className="offlineShell">
-      <header className="offlineHeader">
-        <div className="offlineBrand">
-          <span className="brandMark splatMark" aria-hidden="true" />
+    <main className={styles.shell}>
+      <header className={styles.header}>
+        <div className={styles.brand}>
+          <span className={styles.mark} aria-hidden="true" />
           <span>
-            <strong>Buddhabrot</strong>
-            <small>OFFLINE GAUSSIAN EXPOSURE</small>
+            <strong>3D Buddhabrot</strong>
+            <small>TRUE XYZ ESCAPE VOLUME</small>
           </span>
         </div>
-        <p>One finished 3D splat. No browser-side fractal iteration.</p>
+        <p>One finished 3D escape field. No browser-side fractal iteration.</p>
         <a href="/orbit">Open orbit lab →</a>
       </header>
 
-      <section className="splatViewport" aria-label="Precomputed Buddhabrot Gaussian splat viewer">
-        <div ref={hostRef} className="splatCanvasHost" aria-label="Drag to pan. Scroll to zoom. Double-click to reset." />
-        <div className="offlineVignette" aria-hidden="true" />
+      <section className={styles.viewport} aria-label="Precomputed 3D Buddhabrot Gaussian splat viewer">
+        <div ref={hostRef} className={styles.canvasHost} aria-label="Drag to rotate. Shift-drag to pan. Scroll to zoom. Double-click to reset." />
+        <div className={styles.vignette} aria-hidden="true" />
 
-        <aside className="artifactCard">
-          <span className="artifactEyebrow"><i /> Precomputed artifact</span>
-          <h1>THE ESCAPED PATHS</h1>
+        <aside className={styles.card}>
+          <span className={styles.eyebrow}><i /> Precomputed XYZ artifact</span>
+          <h1>THE ESCAPE VOLUME</h1>
           <p>
-            A true Buddhabrot exposure baked as an XYT volume. Depth tracks each
-            orbit&apos;s progress from origin to escape.
+            A 3D Buddhabrot made from real XYZ orbits under the power‑8
+            Mandelbulb map. Every axis is spatial.
           </p>
           <dl>
-            <div><dt>Iteration cap</dt><dd>{stats.maxIterations.toLocaleString()}</dd></div>
-            <div><dt>Candidate c values</dt><dd>{compact(stats.candidateSamples)}</dd></div>
-            <div><dt>Mirrored exposure</dt><dd>{compact(stats.mirroredSamples)}</dd></div>
+            <div><dt>Mandelbulb power</dt><dd>{stats.mapPower}</dd></div>
+            <div><dt>Orbit depth</dt><dd>{stats.maxIterations}</dd></div>
+            <div><dt>XYZ parameters</dt><dd>{compact(stats.candidateSamples)}</dd></div>
+            <div><dt>Escaping paths</dt><dd>{compact(stats.escapedSamples)}</dd></div>
             <div><dt>Tiny Gaussians</dt><dd>{compact(stats.gaussians)}</dd></div>
-            <div><dt>Source volume</dt><dd>{stats.resolution[0]}² × {stats.resolution[2]}</dd></div>
-            <div><dt>Depth axis</dt><dd>Orbit progress</dd></div>
+            <div><dt>Density lattice</dt><dd>{stats.resolution[0]}³</dd></div>
           </dl>
         </aside>
 
-        <p className="offlineHint">DRAG TO ROTATE · SHIFT-DRAG TO PAN · SCROLL TO ZOOM · DOUBLE-CLICK TO RESET</p>
-        {!loaded && !error && <div className="splatLoading"><span /> Loading 600K splats</div>}
-        {error && <div className="splatLoading splatError">Could not load splat: {error}</div>}
+        <p className={styles.hint}>DRAG TO ROTATE · SHIFT-DRAG TO PAN · SCROLL TO ZOOM · DOUBLE-CLICK TO RESET</p>
+        {!loaded && !error && <div className={styles.loading}><span /> Loading 650K XYZ splats</div>}
+        {error && <div className={`${styles.loading} ${styles.error}`}>Could not load splat: {error}</div>}
       </section>
     </main>
   );

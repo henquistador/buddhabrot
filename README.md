@@ -1,12 +1,10 @@
-# Offline Buddhabrot Splat
+# Offline 3D Buddhabrot Splat
 
-A precomputed Buddhabrot density exposure presented as a standard 3D Gaussian
-Splatting asset. The production artifact tests ten million candidate `c` values
-against a real 1,048,576-iteration escape cap, mirrors the paths for twenty million
-effective samples, then emits 600,000 tiny isotropic Gaussian dots into an XYT
-volume. X/Y store orbit position; depth stores normalized progress from origin
-to escape. A head-on projection remains a Buddhabrot, while rotation exposes
-the trajectories inside it.
+A precomputed, genuinely three-dimensional Buddhabrot presented as a standard
+3D Gaussian Splatting asset. The generator samples 12 million independent XYZ
+parameters and iterates the power-8 spherical Mandelbulb map. Only escaping XYZ
+orbits enter a 216³ density lattice, from which it emits 650,000 tiny isotropic
+Gaussian dots. No planes are copied or extruded.
 
 Fractal generation is entirely offline. The browser only downloads and presents
 the 1.7 MB `public/buddhabrot.spz` artifact with Spark. The earlier interactive
@@ -23,10 +21,10 @@ npm run generate:splat
 Override the workload with environment variables:
 
 ```bash
-BUDDHABROT_SAMPLES=5000000 \
-BUDDHABROT_ITERATIONS=1048576 \
-BUDDHABROT_RESOLUTION=1000 \
-BUDDHABROT_DEPTH=64 \
+BUDDHABROT_SAMPLES=20000000 \
+BUDDHABROT_ITERATIONS=128 \
+BUDDHABROT_RESOLUTION=256 \
+BUDDHABROT_MIN_ESCAPE=5 \
 BUDDHABROT_MAX_SPLATS=800000 \
 npm run generate:splat
 ```
@@ -57,7 +55,7 @@ connection. The hosted production URL avoids LAN and firewall setup.
 
 ## Viewer controls
 
-- Drag: rotate the 3D volume
+- Drag: rotate the real XYZ volume
 - Shift-drag or right-drag: pan
 - Scroll: zoom
 - Double-click: reset the camera

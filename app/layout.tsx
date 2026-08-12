@@ -18,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const imageUrl = `${protocol}://${host}/og.png`;
-  const title = "Buddhabrot — 3D Escape Volume";
-  const description = "A one-million-iteration Buddhabrot baked offline into a rotatable 3D volume of 600,000 tiny Gaussian splats.";
+  const title = "3D Buddhabrot — Mandelbulb Escape Volume";
+  const description = "A genuine XYZ Buddhabrot made from power-8 Mandelbulb escape orbits and 650,000 tiny Gaussian splats.";
 
   return {
     title,
