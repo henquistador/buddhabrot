@@ -17,12 +17,12 @@ type AssetStats = {
 
 const FALLBACK_STATS: AssetStats = {
   candidateSamples: 12_000_000,
-  escapedSamples: 685_729,
+  escapedSamples: 1_797_050,
   maxIterations: 96,
   resolution: [864, 864, 864],
   gaussians: 1_000_000,
-  volumeAxis: "mandelbulb-x-y-z",
-  mapPower: 8,
+  volumeAxis: "quaternion-slice-x-y-z",
+  mapPower: 2,
 };
 
 function compact(value: number) {
@@ -58,10 +58,10 @@ export default function OfflineBuddhabrot() {
     scene.background = new THREE.Color(0x030408);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 20);
     const view = {
-      target: new THREE.Vector3(0, 0, 0),
+      target: new THREE.Vector3(-0.42, 0, 0),
       yaw: -0.58,
       pitch: 0.28,
-      distance: 4.7,
+      distance: 5.1,
     };
     const panRight = new THREE.Vector3();
     const panUp = new THREE.Vector3();
@@ -107,10 +107,10 @@ export default function OfflineBuddhabrot() {
     let lastPointer = { x: 0, y: 0 };
 
     function resetCamera() {
-      view.target.set(0, 0, 0);
+      view.target.set(-0.42, 0, 0);
       view.yaw = -0.58;
       view.pitch = 0.28;
-      view.distance = 4.7;
+      view.distance = 5.1;
       scheduleRender();
     }
 
@@ -219,11 +219,12 @@ export default function OfflineBuddhabrot() {
           <span className={styles.eyebrow}><i /> Precomputed XYZ artifact</span>
           <h1>THE ESCAPE VOLUME</h1>
           <p>
-            A 3D Buddhabrot made from real XYZ orbits under the power‑8
-            Mandelbulb map. Every axis is spatial.
+            The classic Buddhabrot cross-section carried through a continuous
+            quadratic quaternion volume. Every axis is spatial, and faint inner
+            orbit trails remain in the finished splat.
           </p>
           <dl>
-            <div><dt>Mandelbulb power</dt><dd>{stats.mapPower}</dd></div>
+            <div><dt>Quaternion power</dt><dd>{stats.mapPower}</dd></div>
             <div><dt>Orbit depth</dt><dd>{stats.maxIterations}</dd></div>
             <div><dt>XYZ parameters</dt><dd>{compact(stats.candidateSamples)}</dd></div>
             <div><dt>Escaping paths</dt><dd>{compact(stats.escapedSamples)}</dd></div>

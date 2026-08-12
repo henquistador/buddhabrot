@@ -21,10 +21,10 @@ test("server-renders the offline Buddhabrot artifact viewer", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>3D Buddhabrot — Mandelbulb Escape Volume/);
+  assert.match(html, /<title>3D Buddhabrot — Quaternion Escape Volume/);
   assert.match(html, /One finished 3D escape field/i);
   assert.match(html, /Precomputed 3D Buddhabrot Gaussian splat viewer/);
-  assert.match(html, /Mandelbulb power/);
+  assert.match(html, /Quaternion power/);
   assert.match(html, /Tiny Gaussians/);
   assert.match(html, /Density lattice/);
   assert.match(html, /Drag to rotate/i);

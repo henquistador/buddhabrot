@@ -1,11 +1,11 @@
 {
-  "generator": "offline-buddhabulb-3dgs",
+  "generator": "offline-quaternion-buddhabrot-3dgs",
   "candidateSamples": 12000000,
-  "escapedSamples": 685729,
+  "escapedSamples": 1797050,
   "maxIterations": 96,
-  "mapPower": 8,
+  "mapPower": 2,
   "resolution": [864, 864, 864],
-  "volumeAxis": "mandelbulb-x-y-z",
+  "volumeAxis": "quaternion-slice-x-y-z",
   "gaussians": 1000000,
-  "splatSigma": 0.00068171296
+  "splatSigma": 0.00074768519
 }

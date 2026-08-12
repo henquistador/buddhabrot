@@ -1,8 +1,9 @@
-// Offline 3D Buddhabrot (Buddhabulb) -> standard 3DGS PLY.
+// Offline 3D Buddhabrot -> standard 3DGS PLY.
 //
-// This is not a stack of 2D Mandelbrots. Each parameter c and every orbit z
-// are real XYZ vectors. Iteration uses the power-8 spherical Mandelbulb map,
-// z <- bulb_power(z, 8) + c. Only escaping 3D paths enter the density volume.
+// This is not a stack of 2D images. Each parameter c and every orbit z are XYZ
+// vectors in the three-component quaternion slice. The quadratic map preserves
+// the familiar Mandelbrot cross-section while millions of independently angled
+// paths form a continuous volume around it. Only escaping paths are accumulated.
 
 #include <algorithm>
 #include <array>
@@ -21,11 +22,11 @@
 namespace {
 
 constexpr double PI = 3.14159265358979323846;
-constexpr double FIELD_MIN = -1.55;
-constexpr double FIELD_MAX = 1.55;
-constexpr double PARAM_MIN = -1.22;
-constexpr double PARAM_MAX = 1.22;
-constexpr uint32_t BULB_POWER = 8;
+constexpr double X_MIN = -2.2;
+constexpr double X_MAX = 1.2;
+constexpr double RADIAL_MIN = -1.7;
+constexpr double RADIAL_MAX = 1.7;
+constexpr uint32_t MAP_POWER = 2;
 constexpr float SH_C0 = 0.28209479177387814f;
 
 struct Vec3 {
@@ -51,6 +52,7 @@ struct Candidate {
   float green;
   float blue;
   float brightness;
+  double selection_key;
 };
 
 struct VoxelCount {
@@ -74,31 +76,26 @@ double length_squared(const Vec3& v) {
   return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-Vec3 bulb_power(const Vec3& value) {
-  const double radius2 = length_squared(value);
-  if (radius2 < 1e-30) return {};
-
-  const double radius = std::sqrt(radius2);
-  const double theta = std::acos(std::clamp(value.z / radius, -1.0, 1.0));
-  const double phi = std::atan2(value.y, value.x);
-  const double radius_power = std::pow(radius, BULB_POWER);
-  const double powered_theta = theta * BULB_POWER;
-  const double powered_phi = phi * BULB_POWER;
-  const double sin_theta = std::sin(powered_theta);
-
+Vec3 iterate(const Vec3& value, const Vec3& c) {
+  // Square the quaternion slice q = x + yi + zj. Starting at zero, the
+  // imaginary direction stays aligned with c while its angle spans real 3D.
   return {
-      radius_power * sin_theta * std::cos(powered_phi),
-      radius_power * sin_theta * std::sin(powered_phi),
-      radius_power * std::cos(powered_theta),
+      value.x * value.x - value.y * value.y - value.z * value.z + c.x,
+      2.0 * value.x * value.y + c.y,
+      2.0 * value.x * value.z + c.z,
   };
 }
 
-Vec3 iterate(const Vec3& value, const Vec3& c) {
-  const Vec3 powered = bulb_power(value);
-  return {powered.x + c.x, powered.y + c.y, powered.z + c.z};
+bool known_interior(const Vec3& c) {
+  const double imaginary = std::hypot(c.y, c.z);
+  const double bulb = (c.x + 1.0) * (c.x + 1.0) + imaginary * imaginary;
+  const double dx = c.x - 0.25;
+  const double q = dx * dx + imaginary * imaginary;
+  return bulb <= 0.0625 || q * (q + dx) <= 0.25 * imaginary * imaginary;
 }
 
 uint32_t escape_time(const Vec3& c, uint32_t max_iterations) {
+  if (known_interior(c)) return 0;
   Vec3 value;
   Vec3 checkpoint;
   uint32_t checkpoint_span = 8;
@@ -124,20 +121,21 @@ uint32_t escape_time(const Vec3& c, uint32_t max_iterations) {
 void add_orbit(std::vector<uint32_t>& hits, uint32_t resolution,
                const Vec3& c, uint32_t escape) {
   Vec3 value;
-  const double scale = resolution / (FIELD_MAX - FIELD_MIN);
+  const double x_scale = resolution / (X_MAX - X_MIN);
+  const double radial_scale = resolution / (RADIAL_MAX - RADIAL_MIN);
   const size_t plane = static_cast<size_t>(resolution) * resolution;
 
   // Skip z1=c. It is uniformly sampled parameter space, not fractal structure.
   for (uint32_t step = 0; step < escape; ++step) {
     value = iterate(value, c);
     if (step == 0) continue;
-    if (value.x < FIELD_MIN || value.x >= FIELD_MAX ||
-        value.y < FIELD_MIN || value.y >= FIELD_MAX ||
-        value.z < FIELD_MIN || value.z >= FIELD_MAX) continue;
+    if (value.x < X_MIN || value.x >= X_MAX ||
+        value.y < RADIAL_MIN || value.y >= RADIAL_MAX ||
+        value.z < RADIAL_MIN || value.z >= RADIAL_MAX) continue;
 
-    const uint32_t x = static_cast<uint32_t>((value.x - FIELD_MIN) * scale);
-    const uint32_t y = static_cast<uint32_t>((value.y - FIELD_MIN) * scale);
-    const uint32_t z = static_cast<uint32_t>((value.z - FIELD_MIN) * scale);
+    const uint32_t x = static_cast<uint32_t>((value.x - X_MIN) * x_scale);
+    const uint32_t y = static_cast<uint32_t>((value.y - RADIAL_MIN) * radial_scale);
+    const uint32_t z = static_cast<uint32_t>((value.z - RADIAL_MIN) * radial_scale);
     if (x >= resolution || y >= resolution || z >= resolution) continue;
     const size_t voxel = static_cast<size_t>(z) * plane +
                          static_cast<size_t>(y) * resolution + x;
@@ -174,7 +172,7 @@ void write_ply(const Options& options, const std::vector<Candidate>& splats) {
   if (!output) throw std::runtime_error("could not open output PLY");
 
   output << "ply\nformat binary_little_endian 1.0\n"
-         << "comment offline power-8 3D Buddhabulb escape-orbit density\n"
+         << "comment offline quadratic quaternion-slice Buddhabrot volume\n"
          << "element vertex " << splats.size() << "\n";
   const char* fields[] = {
       "x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2",
@@ -183,7 +181,7 @@ void write_ply(const Options& options, const std::vector<Candidate>& splats) {
   output << "end_header\n";
 
   const size_t plane = static_cast<size_t>(options.resolution) * options.resolution;
-  const float voxel_world = static_cast<float>((FIELD_MAX - FIELD_MIN) / options.resolution);
+  const float voxel_world = static_cast<float>((X_MAX - X_MIN) / options.resolution);
   const float sigma = voxel_world * 0.19f;
   const float log_sigma = std::log(sigma);
 
@@ -192,14 +190,16 @@ void write_ply(const Options& options, const std::vector<Candidate>& splats) {
     const uint32_t remainder = splat.voxel % plane;
     const uint32_t y_index = remainder / options.resolution;
     const uint32_t x_index = remainder % options.resolution;
-    const auto coordinate = [&](uint32_t index) {
-      return static_cast<float>(FIELD_MIN + (index + 0.5) / options.resolution *
-                                             (FIELD_MAX - FIELD_MIN));
+    const float x = static_cast<float>(X_MIN + (x_index + 0.5) / options.resolution *
+                                               (X_MAX - X_MIN));
+    const auto radial_coordinate = [&](uint32_t index) {
+      return static_cast<float>(RADIAL_MIN + (index + 0.5) / options.resolution *
+                                                 (RADIAL_MAX - RADIAL_MIN));
     };
     const float alpha = std::clamp(0.16f + 0.46f * std::sqrt(splat.brightness), 0.01f, 0.68f);
     const float opacity = std::log(alpha / (1.0f - alpha));
     const float values[] = {
-        coordinate(x_index), coordinate(y_index), coordinate(z_index),
+        x, radial_coordinate(y_index), radial_coordinate(z_index),
         0.0f, 0.0f, 0.0f,
         (splat.red - 0.5f) / SH_C0,
         (splat.green - 0.5f) / SH_C0,
@@ -246,8 +246,8 @@ int main(int argc, char** argv) {
     std::vector<std::thread> workers;
     workers.reserve(options.threads);
 
-    std::cerr << "sampling " << options.samples << " XYZ parameters with power "
-              << BULB_POWER << " at " << options.iterations << " max iterations on "
+    std::cerr << "sampling " << options.samples << " quadratic quaternion-slice paths at "
+              << options.iterations << " max iterations on "
               << options.threads << " threads into " << options.resolution << "^3 voxels\n";
 
     for (uint32_t thread = 0; thread < options.threads; ++thread) {
@@ -259,10 +259,14 @@ int main(int argc, char** argv) {
           if (begin >= options.samples) break;
           const uint64_t end = std::min(options.samples, begin + CHUNK);
           for (uint64_t sample = begin; sample < end; ++sample) {
+            // Uniform radius (rather than uniform disc area) keeps the classic
+            // Buddhabrot cross-section visible while angle fills continuous 3D.
+            const double radius = random01(sample, 1) * RADIAL_MAX;
+            const double angle = random01(sample, 2) * 2.0 * PI;
             const Vec3 c{
-                PARAM_MIN + random01(sample, 0) * (PARAM_MAX - PARAM_MIN),
-                PARAM_MIN + random01(sample, 1) * (PARAM_MAX - PARAM_MIN),
-                PARAM_MIN + random01(sample, 2) * (PARAM_MAX - PARAM_MIN),
+                X_MIN + random01(sample, 0) * (X_MAX - X_MIN),
+                radius * std::cos(angle),
+                radius * std::sin(angle),
             };
             const uint32_t escape = escape_time(c, options.iterations);
             if (escape >= options.min_escape) {
@@ -306,22 +310,28 @@ int main(int argc, char** argv) {
     for (const VoxelCount& voxel_density : density) {
       const uint32_t voxel = voxel_density.voxel;
       const float normalized = normalized_density(voxel_density.count, exposure);
-      if (normalized < 0.055f) continue;
-
       const uint32_t z_index = voxel / plane;
-      const float height = static_cast<float>(z_index) / (options.resolution - 1);
-      const float magenta = 1.0f - height;
-      const float red = std::clamp(normalized * (0.18f + 0.74f * magenta), 0.0f, 1.0f);
-      const float green = std::clamp(normalized * (0.62f + 0.30f * height), 0.0f, 1.0f);
-      const float blue = std::clamp(normalized * (1.08f - 0.10f * magenta), 0.0f, 1.0f);
+      const uint32_t remainder = voxel % plane;
+      const uint32_t y_index = remainder / options.resolution;
+      const float y = static_cast<float>(y_index) / (options.resolution - 1);
+      const float z = static_cast<float>(z_index) / (options.resolution - 1);
+      const float warm = 1.0f - 0.5f * (y + z);
+      const float red = std::clamp(normalized * (0.30f + 0.62f * warm), 0.0f, 1.0f);
+      const float green = std::clamp(normalized * (0.58f + 0.34f * (1.0f - warm)), 0.0f, 1.0f);
+      const float blue = std::clamp(normalized * (0.94f + 0.06f * warm), 0.0f, 1.0f);
       const float brightness = std::max({red, green, blue});
-      candidates.push_back({voxel, red, green, blue, brightness});
+      // Weighted reservoir key. Density still matters, but at only a modest
+      // ratio. Sparse interior trails no longer lose automatically to the shell.
+      const double weight = 0.28 + 0.72 * std::pow(normalized, 0.42f);
+      const double random = std::max(1e-12, random01(voxel, 9));
+      const double selection_key = -std::log(random) / weight;
+      candidates.push_back({voxel, red, green, blue, brightness, selection_key});
     }
 
     if (candidates.size() > options.max_splats) {
       std::nth_element(candidates.begin(), candidates.begin() + options.max_splats,
                        candidates.end(), [](const Candidate& a, const Candidate& b) {
-                         return a.brightness > b.brightness;
+                         return a.selection_key < b.selection_key;
                        });
       candidates.resize(options.max_splats);
     }
@@ -333,17 +343,17 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(options.stats.parent_path());
     std::ofstream stats(options.stats);
     stats << "{\n"
-          << "  \"generator\": \"offline-buddhabulb-3dgs\",\n"
+          << "  \"generator\": \"offline-quaternion-buddhabrot-3dgs\",\n"
           << "  \"candidateSamples\": " << options.samples << ",\n"
           << "  \"escapedSamples\": " << escaped.load() << ",\n"
           << "  \"maxIterations\": " << options.iterations << ",\n"
-          << "  \"mapPower\": " << BULB_POWER << ",\n"
+          << "  \"mapPower\": " << MAP_POWER << ",\n"
           << "  \"resolution\": [" << options.resolution << ", "
           << options.resolution << ", " << options.resolution << "],\n"
-          << "  \"volumeAxis\": \"mandelbulb-x-y-z\",\n"
+          << "  \"volumeAxis\": \"quaternion-slice-x-y-z\",\n"
           << "  \"gaussians\": " << candidates.size() << ",\n"
           << "  \"splatSigma\": " << std::setprecision(8)
-          << (FIELD_MAX - FIELD_MIN) / options.resolution * 0.19 << "\n"
+          << (X_MAX - X_MIN) / options.resolution * 0.19 << "\n"
           << "}\n";
 
     std::cerr << "qualified escaping paths " << escaped.load() << "; wrote "
