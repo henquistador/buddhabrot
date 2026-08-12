@@ -4,8 +4,8 @@
   "escapedSamples": 685729,
   "maxIterations": 96,
   "mapPower": 8,
-  "resolution": [216, 216, 216],
+  "resolution": [864, 864, 864],
   "volumeAxis": "mandelbulb-x-y-z",
-  "gaussians": 650000,
-  "splatSigma": 0.0027268519
+  "gaussians": 1000000,
+  "splatSigma": 0.00068171296
 }

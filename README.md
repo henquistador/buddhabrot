@@ -3,11 +3,13 @@
 A precomputed, genuinely three-dimensional Buddhabrot presented as a standard
 3D Gaussian Splatting asset. The generator samples 12 million independent XYZ
 parameters and iterates the power-8 spherical Mandelbulb map. Only escaping XYZ
-orbits enter a 216³ density lattice, from which it emits 650,000 tiny isotropic
-Gaussian dots. No planes are copied or extruded.
+orbits enter a sparse 864³ density lattice, from which it emits one million tiny,
+translucent isotropic Gaussian dots. No planes are copied or extruded. Sparse hit
+accumulation makes this four-times-finer linear resolution practical without a
+multi-gigabyte dense voxel buffer.
 
 Fractal generation is entirely offline. The browser only downloads and presents
-the 1.7 MB `public/buddhabrot.spz` artifact with Spark. The earlier interactive
+the 3.3 MB `public/buddhabrot.spz` artifact with Spark. The earlier interactive
 orbit experiment remains available at `/orbit`.
 
 ## Regenerate the artifact

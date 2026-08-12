@@ -19,8 +19,8 @@ const FALLBACK_STATS: AssetStats = {
   candidateSamples: 12_000_000,
   escapedSamples: 685_729,
   maxIterations: 96,
-  resolution: [216, 216, 216],
-  gaussians: 650_000,
+  resolution: [864, 864, 864],
+  gaussians: 1_000_000,
   volumeAxis: "mandelbulb-x-y-z",
   mapPower: 8,
 };
@@ -99,7 +99,7 @@ export default function OfflineBuddhabrot() {
     scene.add(spark);
 
     const splat = new SplatMesh({ url: "/buddhabrot.spz", lod: false });
-    splat.opacity = 0.92;
+    splat.opacity = 0.68;
     scene.add(splat);
 
     let dragging = false;
@@ -233,7 +233,7 @@ export default function OfflineBuddhabrot() {
         </aside>
 
         <p className={styles.hint}>DRAG TO ROTATE · SHIFT-DRAG TO PAN · SCROLL TO ZOOM · DOUBLE-CLICK TO RESET</p>
-        {!loaded && !error && <div className={styles.loading}><span /> Loading 650K XYZ splats</div>}
+        {!loaded && !error && <div className={styles.loading}><span /> Loading 1M transparent XYZ splats</div>}
         {error && <div className={`${styles.loading} ${styles.error}`}>Could not load splat: {error}</div>}
       </section>
     </main>

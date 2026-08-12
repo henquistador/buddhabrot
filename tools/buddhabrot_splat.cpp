@@ -37,9 +37,9 @@ struct Vec3 {
 struct Options {
   uint64_t samples = 12'000'000;
   uint32_t iterations = 96;
-  uint32_t resolution = 216;
+  uint32_t resolution = 864;
   uint32_t min_escape = 5;
-  uint32_t max_splats = 650'000;
+  uint32_t max_splats = 1'000'000;
   uint32_t threads = std::max(1u, std::thread::hardware_concurrency());
   std::filesystem::path output = "outputs/buddhabrot/splat.ply";
   std::filesystem::path stats = "public/buddhabrot.json";
@@ -51,6 +51,11 @@ struct Candidate {
   float green;
   float blue;
   float brightness;
+};
+
+struct VoxelCount {
+  uint32_t voxel;
+  uint32_t count;
 };
 
 uint64_t splitmix64(uint64_t x) {
@@ -116,7 +121,7 @@ uint32_t escape_time(const Vec3& c, uint32_t max_iterations) {
   return 0;
 }
 
-void add_orbit(std::atomic<uint32_t>* histogram, uint32_t resolution,
+void add_orbit(std::vector<uint32_t>& hits, uint32_t resolution,
                const Vec3& c, uint32_t escape) {
   Vec3 value;
   const double scale = resolution / (FIELD_MAX - FIELD_MIN);
@@ -134,17 +139,17 @@ void add_orbit(std::atomic<uint32_t>* histogram, uint32_t resolution,
     const uint32_t y = static_cast<uint32_t>((value.y - FIELD_MIN) * scale);
     const uint32_t z = static_cast<uint32_t>((value.z - FIELD_MIN) * scale);
     if (x >= resolution || y >= resolution || z >= resolution) continue;
-    ++histogram[static_cast<size_t>(z) * plane + static_cast<size_t>(y) * resolution + x];
+    const size_t voxel = static_cast<size_t>(z) * plane +
+                         static_cast<size_t>(y) * resolution + x;
+    hits.push_back(static_cast<uint32_t>(voxel));
   }
 }
 
-double percentile_log(const std::atomic<uint32_t>* histogram, size_t voxels,
-                      double quantile) {
+double percentile_log(const std::vector<VoxelCount>& density, double quantile) {
   std::vector<float> values;
-  values.reserve(voxels / 12);
-  for (size_t i = 0; i < voxels; ++i) {
-    const uint32_t count = histogram[i].load(std::memory_order_relaxed);
-    if (count != 0) values.push_back(std::log1p(static_cast<float>(count)));
+  values.reserve(density.size());
+  for (const VoxelCount& voxel : density) {
+    values.push_back(std::log1p(static_cast<float>(voxel.count)));
   }
   if (values.empty()) return 1.0;
   const size_t index = std::min(values.size() - 1,
@@ -191,7 +196,7 @@ void write_ply(const Options& options, const std::vector<Candidate>& splats) {
       return static_cast<float>(FIELD_MIN + (index + 0.5) / options.resolution *
                                              (FIELD_MAX - FIELD_MIN));
     };
-    const float alpha = std::clamp(0.38f + 0.56f * std::sqrt(splat.brightness), 0.01f, 0.94f);
+    const float alpha = std::clamp(0.16f + 0.46f * std::sqrt(splat.brightness), 0.01f, 0.68f);
     const float opacity = std::log(alpha / (1.0f - alpha));
     const float values[] = {
         coordinate(x_index), coordinate(y_index), coordinate(z_index),
@@ -223,7 +228,10 @@ Options parse_options(int argc, char** argv) {
     else if (arg == "--stats") options.stats = next();
     else throw std::runtime_error("unknown argument: " + arg);
   }
-  if (options.resolution > 512) throw std::runtime_error("resolution must be <= 512");
+  if (options.resolution > 1024) throw std::runtime_error("resolution must be <= 1024");
+  const uint64_t voxel_count = static_cast<uint64_t>(options.resolution) *
+                               options.resolution * options.resolution;
+  if (voxel_count > UINT32_MAX) throw std::runtime_error("resolution exceeds 32-bit sparse index");
   return options;
 }
 
@@ -232,12 +240,9 @@ Options parse_options(int argc, char** argv) {
 int main(int argc, char** argv) {
   try {
     const Options options = parse_options(argc, argv);
-    const size_t voxels = static_cast<size_t>(options.resolution) * options.resolution *
-                          options.resolution;
     std::atomic<uint64_t> cursor{0};
     std::atomic<uint64_t> escaped{0};
-    auto histogram = std::make_unique<std::atomic<uint32_t>[]>(voxels);
-    for (size_t i = 0; i < voxels; ++i) histogram[i].store(0, std::memory_order_relaxed);
+    std::vector<std::vector<uint32_t>> local_hits(options.threads);
     std::vector<std::thread> workers;
     workers.reserve(options.threads);
 
@@ -246,7 +251,8 @@ int main(int argc, char** argv) {
               << options.threads << " threads into " << options.resolution << "^3 voxels\n";
 
     for (uint32_t thread = 0; thread < options.threads; ++thread) {
-      workers.emplace_back([&] {
+      local_hits[thread].reserve(options.samples / options.threads / 2);
+      workers.emplace_back([&, thread] {
         constexpr uint64_t CHUNK = 128;
         while (true) {
           const uint64_t begin = cursor.fetch_add(CHUNK);
@@ -261,7 +267,7 @@ int main(int argc, char** argv) {
             const uint32_t escape = escape_time(c, options.iterations);
             if (escape >= options.min_escape) {
               ++escaped;
-              add_orbit(histogram.get(), options.resolution, c, escape);
+              add_orbit(local_hits[thread], options.resolution, c, escape);
             }
           }
         }
@@ -269,22 +275,45 @@ int main(int argc, char** argv) {
     }
     for (auto& worker : workers) worker.join();
 
-    const double exposure = percentile_log(histogram.get(), voxels, 0.998);
+    size_t total_hits = 0;
+    for (const auto& hits : local_hits) total_hits += hits.size();
+    std::vector<uint32_t> hits;
+    hits.reserve(total_hits);
+    for (auto& thread_hits : local_hits) {
+      hits.insert(hits.end(), thread_hits.begin(), thread_hits.end());
+      thread_hits.clear();
+      thread_hits.shrink_to_fit();
+    }
+    local_hits.clear();
+    std::sort(hits.begin(), hits.end());
+
+    std::vector<VoxelCount> density;
+    density.reserve(hits.size());
+    for (size_t begin = 0; begin < hits.size();) {
+      size_t end = begin + 1;
+      while (end < hits.size() && hits[end] == hits[begin]) ++end;
+      density.push_back({hits[begin], static_cast<uint32_t>(end - begin)});
+      begin = end;
+    }
+    hits.clear();
+    hits.shrink_to_fit();
+
+    const double exposure = percentile_log(density, 0.998);
     std::vector<Candidate> candidates;
     candidates.reserve(options.max_splats * 2);
     const size_t plane = static_cast<size_t>(options.resolution) * options.resolution;
 
-    for (uint32_t voxel = 0; voxel < voxels; ++voxel) {
-      const uint32_t count = histogram[voxel].load(std::memory_order_relaxed);
-      const float density = normalized_density(count, exposure);
-      if (density < 0.055f) continue;
+    for (const VoxelCount& voxel_density : density) {
+      const uint32_t voxel = voxel_density.voxel;
+      const float normalized = normalized_density(voxel_density.count, exposure);
+      if (normalized < 0.055f) continue;
 
       const uint32_t z_index = voxel / plane;
       const float height = static_cast<float>(z_index) / (options.resolution - 1);
       const float magenta = 1.0f - height;
-      const float red = std::clamp(density * (0.18f + 0.74f * magenta), 0.0f, 1.0f);
-      const float green = std::clamp(density * (0.62f + 0.30f * height), 0.0f, 1.0f);
-      const float blue = std::clamp(density * (1.08f - 0.10f * magenta), 0.0f, 1.0f);
+      const float red = std::clamp(normalized * (0.18f + 0.74f * magenta), 0.0f, 1.0f);
+      const float green = std::clamp(normalized * (0.62f + 0.30f * height), 0.0f, 1.0f);
+      const float blue = std::clamp(normalized * (1.08f - 0.10f * magenta), 0.0f, 1.0f);
       const float brightness = std::max({red, green, blue});
       candidates.push_back({voxel, red, green, blue, brightness});
     }
