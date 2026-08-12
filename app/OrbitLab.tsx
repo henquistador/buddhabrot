@@ -134,7 +134,7 @@ struct VSOut {
 fn vs(@location(0) position: vec2f, @location(1) stepT: f32) -> VSOut {
   var out: VSOut;
   out.position = vec4f(position, 0.0, 1.0);
-  let subpixelEnergy = min(1.0, exp2(stepT * style.sizeSlope));
+  let subpixelEnergy = clamp(exp2(stepT * style.sizeSlope), 0.125, 8.0);
   out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue) * subpixelEnergy;
   return out;
 }
@@ -142,53 +142,6 @@ fn vs(@location(0) position: vec2f, @location(1) stepT: f32) -> VSOut {
 @fragment
 fn fs(in: VSOut) -> @location(0) vec4f {
   return vec4f(in.color * style.alpha, style.alpha);
-}
-`;
-
-const quadOrbitShader = /* wgsl */ `
-struct OrbitUniforms {
-  alpha: f32,
-  hue: f32,
-  iterations: f32,
-  pointSize: f32,
-  resolution: vec2f,
-  sizeSlope: f32,
-  pad: f32,
-}
-@group(0) @binding(0) var<uniform> style: OrbitUniforms;
-
-struct VSOut {
-  @builtin(position) position: vec4f,
-  @location(0) color: vec3f,
-  @location(1) local: vec2f,
-}
-
-@vertex
-fn vs(
-  @location(0) center: vec2f,
-  @location(1) stepT: f32,
-  @builtin(vertex_index) vertexIndex: u32,
-) -> VSOut {
-  let corners = array<vec2f, 6>(
-    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
-    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
-  );
-  let corner = corners[vertexIndex];
-  let diameter = clamp(style.pointSize * exp2(stepT * style.sizeSlope), 0.2, 24.0);
-  let clipOffset = corner * diameter / style.resolution;
-  var out: VSOut;
-  out.position = vec4f(center + clipOffset, 0.0, 1.0);
-  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue);
-  out.local = corner;
-  return out;
-}
-
-@fragment
-fn fs(in: VSOut) -> @location(0) vec4f {
-  let radius2 = dot(in.local, in.local);
-  if (radius2 > 1.0) { discard; }
-  let coverage = 1.0 - smoothstep(0.62, 1.0, radius2);
-  return vec4f(in.color * style.alpha * coverage, style.alpha * coverage);
 }
 `;
 
@@ -326,7 +279,6 @@ export default function OrbitLab() {
 
       const computeModule = device.createShaderModule({ code: computeShader });
       const orbitModule = device.createShaderModule({ code: orbitShader });
-      const quadOrbitModule = device.createShaderModule({ code: quadOrbitShader });
       const fullscreenModule = device.createShaderModule({ code: fullscreenShader });
 
       const computePipeline = device.createComputePipeline({
@@ -359,33 +311,6 @@ export default function OrbitLab() {
         },
         primitive: { topology: "point-list" },
       });
-      const quadOrbitPipeline = device.createRenderPipeline({
-        layout: "auto",
-        vertex: {
-          module: quadOrbitModule,
-          entryPoint: "vs",
-          buffers: [{
-            arrayStride: 16,
-            stepMode: "instance",
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x2" },
-              { shaderLocation: 1, offset: 8, format: "float32" },
-            ],
-          }],
-        },
-        fragment: {
-          module: quadOrbitModule,
-          entryPoint: "fs",
-          targets: [{
-            format: "rgba16float",
-            blend: {
-              color: { srcFactor: "one", dstFactor: "one", operation: "add" },
-              alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
-            },
-          }],
-        },
-        primitive: { topology: "triangle-list" },
-      });
       const fadePipeline = device.createRenderPipeline({
         layout: "auto",
         vertex: { module: fullscreenModule, entryPoint: "vs" },
@@ -411,11 +336,6 @@ export default function OrbitLab() {
         layout: orbitPipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: orbitStyleBuffer } }],
       });
-      const quadOrbitBindGroup = device.createBindGroup({
-        layout: quadOrbitPipeline.getBindGroupLayout(0),
-        entries: [{ binding: 0, resource: { buffer: orbitStyleBuffer } }],
-      });
-
       let textures: any[] = [];
       let fadeBindGroups: any[] = [];
       let displayBindGroups: any[] = [];
@@ -556,9 +476,6 @@ export default function OrbitLab() {
       engineRef.current = {
         update(next) {
           if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, 2 ** next.density);
-          if ((next.pointSize !== undefined || next.sizeSlope !== undefined) && (settingsRef.current.pointSize > 1 || settingsRef.current.sizeSlope > 0.001)) {
-            currentParticles = Math.max(512, Math.floor(currentParticles / 4 / 64) * 64);
-          }
           if (next.iterations !== undefined || next.density !== undefined) bumpGeneration();
           if (next.persistence !== undefined || next.iterations !== undefined || next.pointSize !== undefined || next.sizeSlope !== undefined || next.halo !== undefined) clearAccumulation();
         },
@@ -605,7 +522,7 @@ export default function OrbitLab() {
         device.queue.writeBuffer(paramsBuffer, 0, params);
 
         const baseAlpha = Math.min(0.026, 1.05 / Math.sqrt(currentParticles));
-        const sizeAlpha = cfg.pointSize <= 1 ? cfg.pointSize * cfg.pointSize : 1 / Math.sqrt(cfg.pointSize);
+        const sizeAlpha = cfg.pointSize * cfg.pointSize;
         const alpha = baseAlpha * sizeAlpha;
         device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([
           alpha,
@@ -642,15 +559,9 @@ export default function OrbitLab() {
         });
         orbitPass.setVertexBuffer(0, vertexBuffer);
         const pointCount = currentParticles * FRAME_BATCH;
-        if (cfg.pointSize <= 1 && cfg.sizeSlope <= 0.001) {
-          orbitPass.setPipeline(orbitPipeline);
-          orbitPass.setBindGroup(0, orbitBindGroup);
-          orbitPass.draw(pointCount);
-        } else {
-          orbitPass.setPipeline(quadOrbitPipeline);
-          orbitPass.setBindGroup(0, quadOrbitBindGroup);
-          orbitPass.draw(6, pointCount);
-        }
+        orbitPass.setPipeline(orbitPipeline);
+        orbitPass.setBindGroup(0, orbitBindGroup);
+        orbitPass.draw(pointCount);
         orbitPass.end();
 
         const displayPass = encoder.beginRenderPass({
@@ -756,15 +667,15 @@ export default function OrbitLab() {
           <div className="miniControlGrid">
             <label className="controlRow miniControl">
               <span className="controlHead">
-                <span className="controlLabel">Point size</span>
-                <span className="controlValue">{settings.pointSize.toFixed(2)} px</span>
+                <span className="controlLabel">Pixel energy</span>
+                <span className="controlValue">{settings.pointSize.toFixed(2)}×</span>
               </span>
               <input className="range" type="range" min="0.25" max="4" step="0.05" value={settings.pointSize} onChange={(event) => patchSettings({ pointSize: Number(event.target.value) })} />
             </label>
 
             <label className="controlRow miniControl">
               <span className="controlHead">
-                <span className="controlLabel">Size slope</span>
+                <span className="controlLabel">Energy slope</span>
                 <span className="controlValue">{settings.sizeSlope > 0 ? "+" : ""}{settings.sizeSlope.toFixed(2)}</span>
               </span>
               <input className="range" type="range" min="-3" max="3" step="0.1" value={settings.sizeSlope} onChange={(event) => patchSettings({ sizeSlope: Number(event.target.value) })} />
