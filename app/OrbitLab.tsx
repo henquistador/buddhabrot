@@ -83,7 +83,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let needsRestart = newGeneration || state.alive == 0u || state.step >= params.iterations;
   if (needsRestart) {
     state.cycle = select(state.cycle + 1u, 0u, newGeneration);
-    let seed = particle * 0x9e3779b9u ^ params.generation * 0x85ebca6bu ^ state.cycle * 0xc2b2ae35u;
+    let seed = (particle * 0x9e3779b9u) ^ (params.generation * 0x85ebca6bu) ^ (state.cycle * 0xc2b2ae35u);
     let jitter = vec2f(hash(seed), hash(seed ^ 0x68bc21ebu)) * 2.0 - 1.0;
     state.z = vec2f(0.0);
     state.sampleC = params.c + jitter * params.spread;
@@ -141,7 +141,7 @@ fn vs(
     vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
   );
   var out: VSOut;
-  out.position = vec4f(position + corners[vertexIndex] / style.resolution, 0.0, 1.0);
+  out.position = vec4f(position + corners[vertexIndex] * 1.25 / style.resolution, 0.0, 1.0);
   let subpixelEnergy = clamp(exp2(stepT * style.sizeSlope), 0.125, 8.0);
   out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue) * subpixelEnergy;
   return out;
