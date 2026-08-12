@@ -11,19 +11,11 @@ type Stats = {
 
 type EngineSettings = {
   iterations: number;
-  density: number;
-  persistence: number;
-  pointSize: number;
-  sizeSlope: number;
-  halo: boolean;
-  targetFps: number;
-  adaptive: boolean;
 };
 
-const MAX_PARTICLES = 8192;
 const MAX_ITERATIONS = 1_048_576;
-const FRAME_BATCH = 128;
-const MAX_FRAME_POINTS = MAX_PARTICLES * FRAME_BATCH;
+const FRAME_BATCH = 4096;
+const MAX_FRAME_POINTS = FRAME_BATCH;
 const WORKGROUP_SIZE = 64;
 
 const computeShader = /* wgsl */ `
@@ -60,14 +52,6 @@ struct OrbitState {
 @group(0) @binding(1) var<storage, read_write> vertices: array<OrbitPoint>;
 @group(0) @binding(2) var<storage, read_write> states: array<OrbitState>;
 
-fn hash(v: u32) -> f32 {
-  var x = v;
-  x = ((x >> 16u) ^ x) * 0x45d9f3bu;
-  x = ((x >> 16u) ^ x) * 0x45d9f3bu;
-  x = (x >> 16u) ^ x;
-  return f32(x) / 4294967295.0;
-}
-
 fn toClip(z: vec2f) -> vec2f {
   let view = vec2f(2.35 * params.aspect, 2.35) / params.zoom;
   return (z - params.center) / view;
@@ -80,13 +64,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   var state = states[particle];
   let newGeneration = state.generation != params.generation;
-  let needsRestart = newGeneration || state.alive == 0u || state.step >= params.iterations;
+  let needsRestart = newGeneration;
   if (needsRestart) {
-    state.cycle = select(state.cycle + 1u, 0u, newGeneration);
-    let seed = (particle * 0x9e3779b9u) ^ (params.generation * 0x85ebca6bu) ^ (state.cycle * 0xc2b2ae35u);
-    let jitter = vec2f(hash(seed), hash(seed ^ 0x68bc21ebu)) * 2.0 - 1.0;
+    state.cycle = 0u;
     state.z = vec2f(0.0);
-    state.sampleC = params.c + jitter * params.spread;
+    state.sampleC = params.c;
     state.step = 0u;
     state.generation = params.generation;
     state.alive = 1u;
@@ -117,11 +99,7 @@ const orbitShader = /* wgsl */ `
 struct OrbitUniforms {
   alpha: f32,
   hue: f32,
-  iterations: f32,
-  pointSize: f32,
-  resolution: vec2f,
-  sizeSlope: f32,
-  pad: f32,
+  pad: vec2f,
 }
 @group(0) @binding(0) var<uniform> style: OrbitUniforms;
 
@@ -134,16 +112,10 @@ struct VSOut {
 fn vs(
   @location(0) position: vec2f,
   @location(1) stepT: f32,
-  @builtin(vertex_index) vertexIndex: u32,
 ) -> VSOut {
-  let corners = array<vec2f, 6>(
-    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
-    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
-  );
   var out: VSOut;
-  out.position = vec4f(position + corners[vertexIndex] * 1.25 / style.resolution, 0.0, 1.0);
-  let subpixelEnergy = clamp(exp2(stepT * style.sizeSlope), 0.125, 8.0);
-  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue) * subpixelEnergy;
+  out.position = vec4f(position, 0.0, 1.0);
+  out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue);
   return out;
 }
 
@@ -154,7 +126,7 @@ fn fs(in: VSOut) -> @location(0) vec4f {
 `;
 
 const fullscreenShader = /* wgsl */ `
-struct FadeUniforms { fade: f32, gain: f32, halo: f32, pad: f32 }
+struct FadeUniforms { fade: f32, gain: f32, pad: vec2f }
 @group(0) @binding(0) var previous: texture_2d<f32>;
 @group(0) @binding(1) var previousSampler: sampler;
 @group(0) @binding(2) var<uniform> settings: FadeUniforms;
@@ -181,17 +153,7 @@ fn fadeFs(in: VSOut) -> @location(0) vec4f {
 @fragment
 fn displayFs(in: VSOut) -> @location(0) vec4f {
   let center = textureSample(previous, previousSampler, in.uv).rgb;
-  var raw = center * settings.gain;
-  if (settings.halo > 0.5) {
-    let texel = 1.0 / vec2f(textureDimensions(previous));
-    let neighbors = (
-      textureSample(previous, previousSampler, in.uv + vec2f(texel.x, 0.0)).rgb +
-      textureSample(previous, previousSampler, in.uv - vec2f(texel.x, 0.0)).rgb +
-      textureSample(previous, previousSampler, in.uv + vec2f(0.0, texel.y)).rgb +
-      textureSample(previous, previousSampler, in.uv - vec2f(0.0, texel.y)).rgb
-    ) * 0.25;
-    raw = (center + neighbors * 0.48) * settings.gain;
-  }
+  let raw = center * settings.gain;
   let mapped = vec3f(1.0) - exp(-raw);
   let base = vec3f(0.016, 0.022, 0.018);
   return vec4f(base + mapped, 1.0);
@@ -226,13 +188,6 @@ export default function OrbitLab() {
   const pointRef = useRef({ x: -0.74364, y: 0.13183 });
   const settingsRef = useRef<EngineSettings>({
     iterations: 131072,
-    density: 12,
-    persistence: 94,
-    pointSize: 1,
-    sizeSlope: -3,
-    halo: false,
-    targetFps: 60,
-    adaptive: true,
   });
   const [point, setPoint] = useState(pointRef.current);
   const [settings, setSettings] = useState(settingsRef.current);
@@ -277,13 +232,13 @@ export default function OrbitLab() {
         usage: usage.STORAGE | usage.VERTEX,
       });
       const stateBuffer = device.createBuffer({
-        size: MAX_PARTICLES * 32,
+        size: 32,
         usage: usage.STORAGE,
       });
       const paramsBuffer = device.createBuffer({ size: 64, usage: usage.UNIFORM | usage.COPY_DST });
-      const orbitStyleBuffer = device.createBuffer({ size: 32, usage: usage.UNIFORM | usage.COPY_DST });
+      const orbitStyleBuffer = device.createBuffer({ size: 16, usage: usage.UNIFORM | usage.COPY_DST });
       const fadeBuffer = device.createBuffer({ size: 16, usage: usage.UNIFORM | usage.COPY_DST });
-      const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+      const sampler = device.createSampler({ magFilter: "nearest", minFilter: "nearest" });
 
       const computeModule = device.createShaderModule({ code: computeShader });
       const orbitModule = device.createShaderModule({ code: orbitShader });
@@ -300,7 +255,6 @@ export default function OrbitLab() {
           entryPoint: "vs",
           buffers: [{
             arrayStride: 16,
-            stepMode: "instance",
             attributes: [
               { shaderLocation: 0, offset: 0, format: "float32x2" },
               { shaderLocation: 1, offset: 8, format: "float32" },
@@ -318,7 +272,7 @@ export default function OrbitLab() {
             },
           }],
         },
-        primitive: { topology: "triangle-list" },
+        primitive: { topology: "point-list" },
       });
       const fadePipeline = device.createRenderPipeline({
         layout: "auto",
@@ -349,15 +303,13 @@ export default function OrbitLab() {
       let fadeBindGroups: any[] = [];
       let displayBindGroups: any[] = [];
       let textureSize = { width: 0, height: 0 };
-      let pixelRatio = 1;
       let textureIndex = 0;
-      let currentParticles = Math.min(MAX_PARTICLES, 2 ** settingsRef.current.density);
+      const currentParticles = 1;
       let viewCenter = { x: -0.62, y: 0 };
       let zoom = 1;
       let generation = 1;
       let dragging = false;
       let lastPointer = { x: 0, y: 0 };
-      let frameCount = 0;
       let lastStatTime = performance.now();
       let lastFrameTime = performance.now();
       let smoothFrameMs = 16.7;
@@ -380,11 +332,10 @@ export default function OrbitLab() {
 
       function resize() {
         if (!canvas) return;
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        const dpr = 1;
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect.width * dpr));
         const height = Math.max(1, Math.round(rect.height * dpr));
-        pixelRatio = dpr;
         if (width === textureSize.width && height === textureSize.height) return;
         canvas.width = width;
         canvas.height = height;
@@ -446,6 +397,7 @@ export default function OrbitLab() {
         const next = toComplex(event.clientX, event.clientY);
         pointRef.current = next;
         bumpGeneration();
+        clearAccumulation();
         setPoint(next);
       };
       const onWheel = (event: WheelEvent) => {
@@ -484,9 +436,8 @@ export default function OrbitLab() {
 
       engineRef.current = {
         update(next) {
-          if (typeof next.density === "number") currentParticles = Math.min(MAX_PARTICLES, 2 ** next.density);
-          if (next.iterations !== undefined || next.density !== undefined) bumpGeneration();
-          if (next.persistence !== undefined || next.iterations !== undefined || next.pointSize !== undefined || next.sizeSlope !== undefined || next.halo !== undefined) clearAccumulation();
+          if (next.iterations !== undefined) bumpGeneration();
+          if (next.iterations !== undefined) clearAccumulation();
         },
         reset() {
           viewCenter = { x: -0.62, y: 0 };
@@ -502,17 +453,8 @@ export default function OrbitLab() {
         const delta = now - lastFrameTime;
         lastFrameTime = now;
         smoothFrameMs = smoothFrameMs * 0.92 + delta * 0.08;
-        frameCount++;
 
         const cfg = settingsRef.current;
-        const particleCap = Math.min(MAX_PARTICLES, 2 ** cfg.density);
-        currentParticles = Math.min(currentParticles, particleCap);
-        if (cfg.adaptive && frameCount % 30 === 0) {
-          const targetMs = 1000 / cfg.targetFps;
-          if (smoothFrameMs > targetMs * 1.12) currentParticles = Math.max(512, Math.floor(currentParticles * 0.82 / 64) * 64);
-          else if (smoothFrameMs < targetMs * 0.82) currentParticles = Math.min(particleCap, Math.ceil(currentParticles * 1.12 / 64) * 64);
-        }
-
         const aspect = textureSize.width / textureSize.height;
         const point = pointRef.current;
         const params = new Float32Array(16);
@@ -524,28 +466,19 @@ export default function OrbitLab() {
         new Uint32Array(params.buffer)[5] = cfg.iterations;
         new Uint32Array(params.buffer)[6] = FRAME_BATCH;
         new Uint32Array(params.buffer)[7] = generation;
-        params[8] = 0.014 / Math.sqrt(zoom);
+        params[8] = 0;
         params[9] = 0;
         params[10] = viewCenter.x;
         params[11] = viewCenter.y;
         device.queue.writeBuffer(paramsBuffer, 0, params);
 
-        const baseAlpha = Math.min(0.08, 3 / Math.sqrt(currentParticles));
-        const sizeAlpha = cfg.pointSize * cfg.pointSize;
-        const alpha = baseAlpha * sizeAlpha;
+        const alpha = 0.24;
         device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([
           alpha,
           (now * 0.00002) % 0.15,
-          cfg.iterations,
-          cfg.pointSize * pixelRatio,
-          textureSize.width,
-          textureSize.height,
-          cfg.sizeSlope,
-          0,
+          0, 0,
         ]));
-        const fade = 0.84 + cfg.persistence * 0.00165;
-        const gain = 1.5;
-        device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([fade, gain, cfg.halo ? 1 : 0, 0]));
+        device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([1, 1.8, 0, 0]));
 
         const destination = textures[1 - textureIndex];
         const encoder = device.createCommandEncoder();
@@ -570,7 +503,7 @@ export default function OrbitLab() {
         const pointCount = currentParticles * FRAME_BATCH;
         orbitPass.setPipeline(orbitPipeline);
         orbitPass.setBindGroup(0, orbitBindGroup);
-        orbitPass.draw(6, pointCount);
+        orbitPass.draw(pointCount);
         orbitPass.end();
 
         const displayPass = encoder.beginRenderPass({
@@ -669,50 +602,7 @@ export default function OrbitLab() {
             <input className="range" type="range" min="5" max="20" step="1" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: 2 ** Number(event.target.value) })} />
           </label>
 
-          <label className="controlRow">
-            <span className="controlHead">
-              <span className="controlLabel">Seed field</span>
-              <span className="controlValue">{formatCount(2 ** settings.density)} max samples</span>
-            </span>
-            <input className="range" type="range" min="9" max="13" step="1" value={settings.density} onChange={(event) => patchSettings({ density: Number(event.target.value), adaptive: false })} />
-          </label>
-
-          <label className="controlRow">
-            <span className="controlHead">
-              <span className="controlLabel">Trail memory</span>
-              <span className="controlValue">{settings.persistence}%</span>
-            </span>
-            <input className="range" type="range" min="4" max="99" step="1" value={settings.persistence} onChange={(event) => patchSettings({ persistence: Number(event.target.value) })} />
-          </label>
-
-          <div className="miniControlGrid">
-            <label className="controlRow miniControl">
-              <span className="controlHead">
-                <span className="controlLabel">Pixel energy</span>
-                <span className="controlValue">{settings.pointSize.toFixed(2)}×</span>
-              </span>
-              <input className="range" type="range" min="0.25" max="4" step="0.05" value={settings.pointSize} onChange={(event) => patchSettings({ pointSize: Number(event.target.value) })} />
-            </label>
-
-            <label className="controlRow miniControl">
-              <span className="controlHead">
-                <span className="controlLabel">Energy slope</span>
-                <span className="controlValue">{settings.sizeSlope > 0 ? "+" : ""}{settings.sizeSlope.toFixed(2)}</span>
-              </span>
-              <input className="range" type="range" min="-3" max="3" step="0.1" value={settings.sizeSlope} onChange={(event) => patchSettings({ sizeSlope: Number(event.target.value) })} />
-            </label>
-          </div>
-
-          <label className="toggleRow">
-            <input type="checkbox" checked={settings.halo} onChange={(event) => patchSettings({ halo: event.target.checked })} />
-            <span>Halo</span>
-            <span className="controlValue">{settings.halo ? "On" : "Off"}</span>
-          </label>
-
-          <div className="buttonRow">
-            <button className={`button ${settings.adaptive ? "buttonPrimary" : ""}`} onClick={() => patchSettings({ adaptive: !settings.adaptive })} aria-pressed={settings.adaptive}>
-              {settings.adaptive ? `Auto · ${settings.targetFps} FPS` : "Enable auto-load"}
-            </button>
+          <div className="buttonRow singleButton">
             <button className="button" onClick={() => engineRef.current?.reset()}>Reset view</button>
           </div>
         </aside>
@@ -721,7 +611,7 @@ export default function OrbitLab() {
           <div className="stat"><span className="statLabel">Frame rate</span><span className="statValue">{stats.fps.toFixed(0)} fps</span></div>
           <div className="stat"><span className="statLabel">Per frame</span><span className="statValue">{formatCount(stats.samples)}</span></div>
           <div className="stat"><span className="statLabel">Per second</span><span className="statValue">{formatCount(stats.throughput)}</span></div>
-          <div className="stat"><span className="statLabel">Seeds</span><span className="statValue">{formatCount(stats.particles)}</span></div>
+          <div className="stat"><span className="statLabel">Orbit streams</span><span className="statValue">1</span></div>
         </aside>
 
         <p className="hint">Move: choose c · Scroll: zoom · Shift + drag: pan</p>

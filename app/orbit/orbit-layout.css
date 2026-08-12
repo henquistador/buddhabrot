@@ -51,6 +51,10 @@
   background: transparent;
 }
 
+.orbitSidebar .singleButton {
+  grid-template-columns: 1fr;
+}
+
 @media (max-width: 760px) {
   .orbitWorkspace {
     grid-template-columns: minmax(0, 1fr);
