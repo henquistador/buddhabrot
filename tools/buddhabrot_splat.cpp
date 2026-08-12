@@ -1,11 +1,13 @@
-// Offline Buddhabrot orbit-time volume -> standard 3DGS PLY.
+// Offline complex Hénon escape cloud -> standard 3DGS PLY.
 //
-// X/Y are the actual complex orbit position. Z is continuous normalized orbit
-// progress from z0 to escape. This preserves the canonical Buddhabrot in front
-// projection while rotation reveals the trajectories, rather than copied image
-// planes or a solid of revolution.
+// Iteration happens in C^2:
+//   (z, w) <- (z^2 + c - a*w, z)
+// with fixed complex coupling a. Every orbit point has four real coordinates.
+// A fixed oblique projection maps that genuine C^2 state into XYZ; no axis is
+// orbit time, and no 2D image planes are copied or revolved.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -19,19 +21,34 @@
 
 namespace {
 
-constexpr double X_MIN = -2.2;
-constexpr double X_MAX = 1.2;
-constexpr double Y_MIN = -1.7;
-constexpr double Y_MAX = 1.7;
-constexpr float VOLUME_DEPTH = 1.15f;
+constexpr double C_REAL_MIN = -2.15;
+constexpr double C_REAL_MAX = 1.15;
+constexpr double C_IMAG_MIN = -1.65;
+constexpr double C_IMAG_MAX = 1.65;
+constexpr double FIELD_MIN = -2.35;
+constexpr double FIELD_MAX = 2.35;
+constexpr double COUPLING_MAGNITUDE = 0.22;
+constexpr double COUPLING_PHASE = 0.65;
+constexpr double COUPLING_REAL = 0.1751384374673037;
+constexpr double COUPLING_IMAG = 0.1331410089695180;
 constexpr float SH_C0 = 0.28209479177387814f;
+
+struct Complex {
+  double real = 0.0;
+  double imag = 0.0;
+};
+
+struct Point3 {
+  double x;
+  double y;
+  double z;
+};
 
 struct Options {
   uint64_t samples = 12'000'000;
-  uint32_t iterations = 1'048'576;
-  uint32_t resolution = 1'600;
-  uint32_t depth = 256;
-  uint32_t min_escape = 16;
+  uint32_t iterations = 512;
+  uint32_t resolution = 864;
+  uint32_t min_escape = 8;
   uint32_t max_splats = 1'000'000;
   uint32_t threads = std::max(1u, std::thread::hardware_concurrency());
   std::filesystem::path output = "outputs/buddhabrot/splat.ply";
@@ -60,81 +77,87 @@ uint64_t splitmix64(uint64_t x) {
 }
 
 double random01(uint64_t sample, uint64_t lane) {
-  const uint64_t bits = splitmix64(sample * 2 + lane + 0x627564646861ULL);
+  const uint64_t bits = splitmix64(sample * 2 + lane + 0x68656e6f6eULL);
   return static_cast<double>(bits >> 11) * (1.0 / 9007199254740992.0);
 }
 
-bool known_interior(double cr, double ci) {
-  const double bulb = (cr + 1.0) * (cr + 1.0) + ci * ci;
-  const double dx = cr - 0.25;
-  const double q = dx * dx + ci * ci;
-  return bulb <= 0.0625 || q * (q + dx) <= 0.25 * ci * ci;
+Complex square(const Complex& value) {
+  return {
+      value.real * value.real - value.imag * value.imag,
+      2.0 * value.real * value.imag,
+  };
 }
 
-uint32_t escape_time(double cr, double ci, uint32_t max_iterations) {
-  if (known_interior(cr, ci)) return 0;
+Complex multiply_by_coupling(const Complex& value) {
+  return {
+      COUPLING_REAL * value.real - COUPLING_IMAG * value.imag,
+      COUPLING_REAL * value.imag + COUPLING_IMAG * value.real,
+  };
+}
 
-  double zr = 0.0;
-  double zi = 0.0;
-  double checkpoint_r = 0.0;
-  double checkpoint_i = 0.0;
-  uint32_t checkpoint_span = 32;
-  uint32_t since_checkpoint = 0;
+void iterate(Complex& z, Complex& w, const Complex& c) {
+  const Complex previous = z;
+  const Complex squared = square(z);
+  const Complex coupled = multiply_by_coupling(w);
+  z = {squared.real + c.real - coupled.real,
+       squared.imag + c.imag - coupled.imag};
+  w = previous;
+}
 
+double norm_squared(const Complex& value) {
+  return value.real * value.real + value.imag * value.imag;
+}
+
+uint32_t escape_time(const Complex& c, uint32_t max_iterations) {
+  Complex z;
+  Complex w;
   for (uint32_t step = 0; step < max_iterations; ++step) {
-    const double next_r = zr * zr - zi * zi + cr;
-    zi = 2.0 * zr * zi + ci;
-    zr = next_r;
-    if (zr * zr + zi * zi > 4.0) return step + 1;
-
-    ++since_checkpoint;
-    const double dr = zr - checkpoint_r;
-    const double di = zi - checkpoint_i;
-    if (since_checkpoint > 8 && dr * dr + di * di < 1e-28) return 0;
-    if (since_checkpoint >= checkpoint_span) {
-      checkpoint_r = zr;
-      checkpoint_i = zi;
-      since_checkpoint = 0;
-      checkpoint_span = std::min(checkpoint_span * 2u, 4096u);
-    }
+    iterate(z, w, c);
+    if (norm_squared(z) + 0.35 * norm_squared(w) > 36.0) return step + 1;
   }
   return 0;
 }
 
+Point3 project_c2(const Complex& z, const Complex& w) {
+  // An oblique 4D camera. The three rows are deliberately mixed so neither
+  // z nor w becomes a flat screen plane. Scale balances this Hénon family.
+  return {
+      0.74 * z.real + 0.26 * w.real + 0.31 * w.imag,
+      0.74 * z.imag + 0.26 * w.imag - 0.31 * w.real,
+      0.58 * w.real - 0.27 * z.real + 0.46 * w.imag - 0.21 * z.imag,
+  };
+}
+
 void add_orbit(std::vector<uint32_t>& hits, const Options& options,
-               double cr, double ci, uint32_t escape) {
-  const size_t pixels = static_cast<size_t>(options.resolution) * options.resolution;
-  double zr = 0.0;
-  double zi = 0.0;
+               const Complex& c, uint32_t escape) {
+  Complex z;
+  Complex w;
+  const double scale = options.resolution / (FIELD_MAX - FIELD_MIN);
+  const size_t plane = static_cast<size_t>(options.resolution) * options.resolution;
 
   for (uint32_t step = 0; step < escape; ++step) {
-    const double next_r = zr * zr - zi * zi + cr;
-    zi = 2.0 * zr * zi + ci;
-    zr = next_r;
-    if (zr < X_MIN || zr >= X_MAX || zi < Y_MIN || zi >= Y_MAX) continue;
+    iterate(z, w, c);
+    if (step < 2) continue;
+    const Point3 point = project_c2(z, w);
+    if (point.x < FIELD_MIN || point.x >= FIELD_MAX ||
+        point.y < FIELD_MIN || point.y >= FIELD_MAX ||
+        point.z < FIELD_MIN || point.z >= FIELD_MAX) continue;
 
-    const uint32_t px = static_cast<uint32_t>((zr - X_MIN) / (X_MAX - X_MIN) * options.resolution);
-    const uint32_t py = static_cast<uint32_t>((Y_MAX - zi) / (Y_MAX - Y_MIN) * options.resolution);
-    if (px >= options.resolution || py >= options.resolution) continue;
-    const uint32_t pz = std::min(options.depth - 1,
-        static_cast<uint32_t>(static_cast<uint64_t>(step) * options.depth / escape));
-    const uint32_t voxel = static_cast<uint32_t>(static_cast<size_t>(pz) * pixels +
-                                                  static_cast<size_t>(py) * options.resolution + px);
-    hits.push_back(voxel);
-
-    const uint32_t mirror_y = options.resolution - 1 - py;
-    if (mirror_y != py) {
-      hits.push_back(static_cast<uint32_t>(static_cast<size_t>(pz) * pixels +
-                                          static_cast<size_t>(mirror_y) * options.resolution + px));
-    }
+    const uint32_t x = static_cast<uint32_t>((point.x - FIELD_MIN) * scale);
+    const uint32_t y = static_cast<uint32_t>((point.y - FIELD_MIN) * scale);
+    const uint32_t z_index = static_cast<uint32_t>((point.z - FIELD_MIN) * scale);
+    if (x >= options.resolution || y >= options.resolution || z_index >= options.resolution) continue;
+    const size_t voxel = static_cast<size_t>(z_index) * plane +
+                         static_cast<size_t>(y) * options.resolution + x;
+    hits.push_back(static_cast<uint32_t>(voxel));
   }
 }
 
-double percentile_log(const std::vector<uint32_t>& density, double quantile) {
+double percentile_log(const std::vector<VoxelCount>& density, double quantile) {
   std::vector<float> values;
   values.reserve(density.size());
-  for (const uint32_t count : density) {
-    if (count != 0) values.push_back(std::log1p(static_cast<float>(count)));
+  for (const VoxelCount& voxel : density) {
+    values.push_back(std::log1p(static_cast<float>(voxel.count)));
   }
   if (values.empty()) return 1.0;
   const size_t index = std::min(values.size() - 1,
@@ -145,7 +168,7 @@ double percentile_log(const std::vector<uint32_t>& density, double quantile) {
 
 float normalized_density(uint32_t count, double exposure) {
   const double value = std::min(1.0, std::log1p(static_cast<double>(count)) / exposure);
-  return static_cast<float>(std::pow(value, 3.0));
+  return static_cast<float>(std::pow(value, 1.6));
 }
 
 void append_float(std::ofstream& output, float value) {
@@ -158,7 +181,7 @@ void write_ply(const Options& options, const std::vector<Candidate>& splats) {
   if (!output) throw std::runtime_error("could not open output PLY");
 
   output << "ply\nformat binary_little_endian 1.0\n"
-         << "comment offline Buddhabrot XY orbit and continuous time depth\n"
+         << "comment offline complex Henon C2 escape-orbit cloud\n"
          << "element vertex " << splats.size() << "\n";
   const char* fields[] = {
       "x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2",
@@ -166,23 +189,24 @@ void write_ply(const Options& options, const std::vector<Candidate>& splats) {
   for (const char* field : fields) output << "property float " << field << "\n";
   output << "end_header\n";
 
-  const size_t pixels = static_cast<size_t>(options.resolution) * options.resolution;
-  const float sigma = static_cast<float>((X_MAX - X_MIN) / options.resolution * 0.65);
+  const size_t plane = static_cast<size_t>(options.resolution) * options.resolution;
+  const float sigma = static_cast<float>((FIELD_MAX - FIELD_MIN) / options.resolution * 0.24);
   const float log_sigma = std::log(sigma);
 
   for (const Candidate& splat : splats) {
-    const uint32_t pz = splat.voxel / pixels;
-    const uint32_t pixel = splat.voxel % pixels;
-    const uint32_t py = pixel / options.resolution;
-    const uint32_t px = pixel % options.resolution;
-    const float x = static_cast<float>(X_MIN + (px + 0.5) / options.resolution * (X_MAX - X_MIN));
-    const float y = static_cast<float>(Y_MAX - (py + 0.5) / options.resolution * (Y_MAX - Y_MIN));
-    const float z = (static_cast<float>(pz) / std::max(1u, options.depth - 1) - 0.5f) * VOLUME_DEPTH;
-    const float alpha = std::clamp(
-        0.015f + 0.65f * std::pow(splat.density, 1.25f), 0.01f, 0.665f);
+    const uint32_t z_index = splat.voxel / plane;
+    const uint32_t remainder = splat.voxel % plane;
+    const uint32_t y_index = remainder / options.resolution;
+    const uint32_t x_index = remainder % options.resolution;
+    const auto coordinate = [&](uint32_t index) {
+      return static_cast<float>(FIELD_MIN + (index + 0.5) / options.resolution *
+                                             (FIELD_MAX - FIELD_MIN));
+    };
+    const float alpha = std::clamp(0.035f + 0.52f * std::pow(splat.density, 1.1f), 0.02f, 0.555f);
     const float opacity = std::log(alpha / (1.0f - alpha));
     const float values[] = {
-        x, y, z, 0.0f, 0.0f, 0.0f,
+        coordinate(x_index), coordinate(y_index), coordinate(z_index),
+        0.0f, 0.0f, 0.0f,
         (splat.red - 0.5f) / SH_C0,
         (splat.green - 0.5f) / SH_C0,
         (splat.blue - 0.5f) / SH_C0,
@@ -203,7 +227,6 @@ Options parse_options(int argc, char** argv) {
     if (arg == "--samples") options.samples = std::stoull(next());
     else if (arg == "--iterations") options.iterations = std::stoul(next());
     else if (arg == "--resolution") options.resolution = std::stoul(next());
-    else if (arg == "--depth") options.depth = std::stoul(next());
     else if (arg == "--min-escape") options.min_escape = std::stoul(next());
     else if (arg == "--max-splats") options.max_splats = std::stoul(next());
     else if (arg == "--threads") options.threads = std::max(1ul, std::stoul(next()));
@@ -211,11 +234,11 @@ Options parse_options(int argc, char** argv) {
     else if (arg == "--stats") options.stats = next();
     else throw std::runtime_error("unknown argument: " + arg);
   }
-  if (options.resolution == 0 || options.depth == 0) {
-    throw std::runtime_error("resolution and depth must be positive");
+  const uint64_t voxels = static_cast<uint64_t>(options.resolution) *
+                          options.resolution * options.resolution;
+  if (options.resolution == 0 || voxels > UINT32_MAX) {
+    throw std::runtime_error("resolution must fit a 32-bit sparse voxel index");
   }
-  const uint64_t voxels = static_cast<uint64_t>(options.resolution) * options.resolution * options.depth;
-  if (voxels > UINT32_MAX) throw std::runtime_error("volume exceeds 32-bit sparse index");
   return options;
 }
 
@@ -230,9 +253,10 @@ int main(int argc, char** argv) {
     std::vector<std::thread> workers;
     workers.reserve(options.threads);
 
-    std::cerr << "sampling " << options.samples << " complex parameters at "
-              << options.iterations << " max iterations on " << options.threads
-              << " threads into " << options.resolution << "^2 x " << options.depth << " voxels\n";
+    std::cerr << "sampling " << options.samples << " complex parameters for H(z,w)="
+              << "(z^2+c-a*w,z), |a|=" << COUPLING_MAGNITUDE << ", phase="
+              << COUPLING_PHASE << ", " << options.iterations << " iterations into "
+              << options.resolution << "^3 voxels\n";
 
     for (uint32_t thread = 0; thread < options.threads; ++thread) {
       local_hits[thread].reserve(options.samples / options.threads);
@@ -243,12 +267,14 @@ int main(int argc, char** argv) {
           if (begin >= options.samples) break;
           const uint64_t end = std::min(options.samples, begin + CHUNK);
           for (uint64_t sample = begin; sample < end; ++sample) {
-            const double cr = X_MIN + random01(sample, 0) * (X_MAX - X_MIN);
-            const double ci = random01(sample, 1) * Y_MAX;
-            const uint32_t escape = escape_time(cr, ci, options.iterations);
+            const Complex c{
+                C_REAL_MIN + random01(sample, 0) * (C_REAL_MAX - C_REAL_MIN),
+                C_IMAG_MIN + random01(sample, 1) * (C_IMAG_MAX - C_IMAG_MIN),
+            };
+            const uint32_t escape = escape_time(c, options.iterations);
             if (escape >= options.min_escape) {
               ++escaped;
-              add_orbit(local_hits[thread], options, cr, ci, escape);
+              add_orbit(local_hits[thread], options, c, escape);
             }
           }
         }
@@ -279,51 +305,29 @@ int main(int argc, char** argv) {
     hits.clear();
     hits.shrink_to_fit();
 
-    const size_t pixels = static_cast<size_t>(options.resolution) * options.resolution;
-    std::vector<uint32_t> projected_density(pixels, 0);
-    std::vector<uint32_t> chosen_voxel(pixels, UINT32_MAX);
-    std::vector<double> chosen_depth_key(pixels, INFINITY);
-    for (const VoxelCount& voxel_density : density) {
-      const uint32_t pixel = voxel_density.voxel % pixels;
-      uint32_t& projected = projected_density[pixel];
-      projected = UINT32_MAX - projected < voxel_density.count
-          ? UINT32_MAX
-          : projected + voxel_density.count;
-      const double random = std::max(1e-12, random01(voxel_density.voxel, 6));
-      const double key = -std::log(random) / voxel_density.count;
-      if (key < chosen_depth_key[pixel]) {
-        chosen_depth_key[pixel] = key;
-        chosen_voxel[pixel] = voxel_density.voxel;
-      }
-    }
-    const double exposure = percentile_log(projected_density, 0.998);
+    const double exposure = percentile_log(density, 0.998);
+    const size_t plane = static_cast<size_t>(options.resolution) * options.resolution;
     std::vector<Candidate> candidates;
-    candidates.reserve(pixels);
-    const size_t occupied_pixels = std::count_if(
-        projected_density.begin(), projected_density.end(), [](uint32_t count) { return count != 0; });
-    const double interior_probability = occupied_pixels == 0
-        ? 0.0
-        : std::min(1.0, options.max_splats * 0.15 / static_cast<double>(occupied_pixels));
+    candidates.reserve(density.size());
+    for (const VoxelCount& voxel_density : density) {
+      const float normalized = normalized_density(voxel_density.count, exposure);
+      const uint32_t z_index = voxel_density.voxel / plane;
+      const uint32_t remainder = voxel_density.voxel % plane;
+      const uint32_t y_index = remainder / options.resolution;
+      const float y = static_cast<float>(y_index) / std::max(1u, options.resolution - 1);
+      const float z = static_cast<float>(z_index) / std::max(1u, options.resolution - 1);
+      const float hue_mix = 0.58f * y + 0.42f * z;
+      const float luminance = 0.38f + 0.62f * std::sqrt(normalized);
+      const float red = std::clamp(luminance * (0.20f + 0.72f * hue_mix), 0.0f, 1.0f);
+      const float green = std::clamp(luminance * (0.91f - 0.23f * hue_mix), 0.0f, 1.0f);
+      const float blue = std::clamp(luminance * (1.04f - 0.05f * hue_mix), 0.0f, 1.0f);
 
-    for (uint32_t pixel = 0; pixel < pixels; ++pixel) {
-      if (chosen_voxel[pixel] == UINT32_MAX) continue;
-      // Rank and shade using the canonical front-projected Buddhabrot density.
-      // The voxel still retains its own continuous orbit-time depth.
-      const float normalized = normalized_density(projected_density[pixel], exposure);
-      const uint32_t pz = chosen_voxel[pixel] / pixels;
-      const float time = static_cast<float>(pz) / std::max(1u, options.depth - 1);
-      const float luminance = 0.42f + 0.58f * std::sqrt(normalized);
-      const float red = std::clamp(luminance * (0.16f + 0.74f * time), 0.0f, 1.0f);
-      const float green = std::clamp(luminance * (0.94f - 0.30f * time), 0.0f, 1.0f);
-      const float blue = std::clamp(luminance * (1.02f - 0.04f * time), 0.0f, 1.0f);
-      // Reserve about 150K occupied pixels for faint inner trajectories. Fill
-      // the rest strictly by projected density for a crisp Buddha silhouette.
-      const double random = random01(pixel, 7);
-      const bool reserve_interior = random01(pixel, 8) < interior_probability;
-      const double key = reserve_interior
-          ? -2.0 - random
-          : -static_cast<double>(normalized) - random * 1e-7;
-      candidates.push_back({chosen_voxel[pixel], red, green, blue, normalized, key});
+      // Weighted reservoir. Dense folding dominates, but a small floor keeps
+      // wispy low-density branches and internal bridges.
+      const double weight = 0.025 + 0.975 * std::pow(normalized, 1.8f);
+      const double random = std::max(1e-12, random01(voxel_density.voxel, 8));
+      const double key = -std::log(random) / weight;
+      candidates.push_back({voxel_density.voxel, red, green, blue, normalized, key});
     }
 
     if (candidates.size() > options.max_splats) {
@@ -341,24 +345,24 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(options.stats.parent_path());
     std::ofstream stats(options.stats);
     stats << "{\n"
-          << "  \"generator\": \"offline-buddhabrot-orbit-time-3dgs\",\n"
+          << "  \"generator\": \"offline-complex-henon-3dgs\",\n"
           << "  \"candidateSamples\": " << options.samples << ",\n"
-          << "  \"mirroredSamples\": " << options.samples * 2 << ",\n"
           << "  \"escapedSamples\": " << escaped.load() << ",\n"
           << "  \"maxIterations\": " << options.iterations << ",\n"
           << "  \"mapPower\": 2,\n"
+          << "  \"couplingMagnitude\": " << COUPLING_MAGNITUDE << ",\n"
+          << "  \"couplingPhase\": " << COUPLING_PHASE << ",\n"
           << "  \"resolution\": [" << options.resolution << ", "
-          << options.resolution << ", " << options.depth << "],\n"
-          << "  \"volumeAxis\": \"normalized-orbit-progress\",\n"
-          << "  \"volumeDepth\": " << VOLUME_DEPTH << ",\n"
+          << options.resolution << ", " << options.resolution << "],\n"
+          << "  \"volumeAxis\": \"oblique-projection-of-c2\",\n"
           << "  \"gaussians\": " << candidates.size() << ",\n"
           << "  \"splatSigma\": " << std::setprecision(8)
-          << (X_MAX - X_MIN) / options.resolution * 0.65 << "\n"
+          << (FIELD_MAX - FIELD_MIN) / options.resolution * 0.24 << "\n"
           << "}\n";
 
     std::cerr << "qualified escaping paths " << escaped.load() << "; "
-              << density.size() << " occupied voxels; wrote " << candidates.size()
-              << " tiny orbit-time gaussians to " << options.output << "\n";
+              << density.size() << " occupied XYZ voxels; wrote " << candidates.size()
+              << " Hénon gaussians to " << options.output << "\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "error: " << error.what() << "\n";

@@ -7,26 +7,26 @@ import styles from "./OfflineBuddhabrot.module.css";
 
 type AssetStats = {
   candidateSamples: number;
-  mirroredSamples: number;
   escapedSamples: number;
   maxIterations: number;
   resolution: [number, number, number];
   gaussians: number;
   volumeAxis: string;
   mapPower: number;
-  volumeDepth: number;
+  couplingMagnitude: number;
+  couplingPhase: number;
 };
 
 const FALLBACK_STATS: AssetStats = {
   candidateSamples: 12_000_000,
-  mirroredSamples: 24_000_000,
-  escapedSamples: 326_450,
-  maxIterations: 1_048_576,
-  resolution: [1600, 1600, 256],
+  escapedSamples: 1_323_658,
+  maxIterations: 512,
+  resolution: [864, 864, 864],
   gaussians: 1_000_000,
-  volumeAxis: "normalized-orbit-progress",
+  volumeAxis: "oblique-projection-of-c2",
   mapPower: 2,
-  volumeDepth: 1.15,
+  couplingMagnitude: 0.22,
+  couplingPhase: 0.65,
 };
 
 function compact(value: number) {
@@ -42,9 +42,9 @@ export default function OfflineBuddhabrot() {
   const [stats, setStats] = useState<AssetStats>(FALLBACK_STATS);
 
   useEffect(() => {
-    fetch("/buddhabrot.json")
+    fetch("/buddhabrot.json", { cache: "no-store" })
       .then((response) => response.json() as Promise<AssetStats>)
-      .then(setStats)
+      .then((data) => setStats({ ...FALLBACK_STATS, ...data }))
       .catch(() => undefined);
   }, []);
 
@@ -62,10 +62,10 @@ export default function OfflineBuddhabrot() {
     scene.background = new THREE.Color(0x030408);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 20);
     const view = {
-      target: new THREE.Vector3(-0.25, 0, 0),
-      yaw: 0,
-      pitch: 0,
-      distance: 5.1,
+      target: new THREE.Vector3(0, 0, 0),
+      yaw: 0.72,
+      pitch: 0.32,
+      distance: 6.3,
     };
     const panRight = new THREE.Vector3();
     const panUp = new THREE.Vector3();
@@ -102,11 +102,8 @@ export default function OfflineBuddhabrot() {
     });
     scene.add(spark);
 
-    const splat = new SplatMesh({ url: "/buddhabrot.spz", lod: false });
-    splat.opacity = 0.85;
-    // Canonical Buddhabrot presentation: the real axis is vertical.
-    splat.rotation.z = Math.PI / 2;
-    splat.position.y = 0.5;
+    const splat = new SplatMesh({ url: "/henon-buddhabrot.spz", lod: false });
+    splat.opacity = 0.82;
     scene.add(splat);
 
     let dragging = false;
@@ -114,10 +111,10 @@ export default function OfflineBuddhabrot() {
     let lastPointer = { x: 0, y: 0 };
 
     function resetCamera() {
-      view.target.set(-0.25, 0, 0);
-      view.yaw = 0;
-      view.pitch = 0;
-      view.distance = 5.1;
+      view.target.set(0, 0, 0);
+      view.yaw = 0.72;
+      view.pitch = 0.32;
+      view.distance = 6.3;
       scheduleRender();
     }
 
@@ -211,7 +208,7 @@ export default function OfflineBuddhabrot() {
           <span className={styles.mark} aria-hidden="true" />
           <span>
             <strong>3D Buddhabrot</strong>
-            <small>ORBIT-TIME ESCAPE VOLUME</small>
+            <small>COMPLEX HÉNON ESCAPE CLOUD</small>
           </span>
         </div>
         <p>One finished 3D escape field. No browser-side fractal iteration.</p>
@@ -226,23 +223,24 @@ export default function OfflineBuddhabrot() {
           <span className={styles.eyebrow}><i /> Precomputed XYZ artifact</span>
           <h1>THE ESCAPE VOLUME</h1>
           <p>
-            The canonical Buddhabrot in X/Y, sculpted into continuous depth by
-            each point&apos;s progress along its escaping orbit. Front view keeps
-            the Buddha; rotation opens the trajectories inside it.
+            Quadratic escape orbits in two coupled complex variables. Their four
+            real coordinates are projected directly into XYZ, producing folded
+            sheets, cavities, and wispy bridges instead of time layers.
           </p>
           <dl>
+            <div><dt>Map</dt><dd>Complex Hénon</dd></div>
             <div><dt>Quadratic power</dt><dd>{stats.mapPower}</dd></div>
+            <div><dt>Complex coupling</dt><dd>{stats.couplingMagnitude.toFixed(2)} ∠ {stats.couplingPhase.toFixed(2)}</dd></div>
             <div><dt>Escape cap</dt><dd>{compact(stats.maxIterations)}</dd></div>
             <div><dt>Candidate c values</dt><dd>{compact(stats.candidateSamples)}</dd></div>
-            <div><dt>Effective samples</dt><dd>{compact(stats.mirroredSamples)}</dd></div>
             <div><dt>Escaping paths</dt><dd>{compact(stats.escapedSamples)}</dd></div>
             <div><dt>Tiny Gaussians</dt><dd>{compact(stats.gaussians)}</dd></div>
-            <div><dt>Orbit-time lattice</dt><dd>{stats.resolution[0]}² × {stats.resolution[2]}</dd></div>
+            <div><dt>XYZ lattice</dt><dd>{stats.resolution[0]}³</dd></div>
           </dl>
         </aside>
 
         <p className={styles.hint}>DRAG TO ROTATE · SHIFT-DRAG TO PAN · SCROLL TO ZOOM · DOUBLE-CLICK TO RESET</p>
-        {!loaded && !error && <div className={styles.loading}><span /> Loading 1M transparent XYZ splats</div>}
+        {!loaded && !error && <div className={styles.loading}><span /> Loading 1M complex Hénon splats</div>}
         {error && <div className={`${styles.loading} ${styles.error}`}>Could not load splat: {error}</div>}
       </section>
     </main>

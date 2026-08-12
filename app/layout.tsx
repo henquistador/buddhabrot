@@ -18,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const imageUrl = `${protocol}://${host}/og.png`;
-  const title = "3D Buddhabrot — Orbit-Time Escape Volume";
-  const description = "A proper offline Buddhabrot at 1600² × 256 resolution, with continuous orbit progress forming its explorable third dimension.";
+  const title = "3D Buddhabrot — Complex Hénon Escape Cloud";
+  const description = "A million-splat cloud formed by projecting coupled quadratic escape orbits from two complex variables into real XYZ space.";
 
   return {
     title,

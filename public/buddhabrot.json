@@ -1,13 +1,13 @@
 {
-  "generator": "offline-buddhabrot-orbit-time-3dgs",
+  "generator": "offline-complex-henon-3dgs",
   "candidateSamples": 12000000,
-  "mirroredSamples": 24000000,
-  "escapedSamples": 326450,
-  "maxIterations": 1048576,
+  "escapedSamples": 1323658,
+  "maxIterations": 512,
   "mapPower": 2,
-  "resolution": [1600, 1600, 256],
-  "volumeAxis": "normalized-orbit-progress",
-  "volumeDepth": 1.15,
+  "couplingMagnitude": 0.22,
+  "couplingPhase": 0.65,
+  "resolution": [864, 864, 864],
+  "volumeAxis": "oblique-projection-of-c2",
   "gaussians": 1000000,
-  "splatSigma": 0.00138125
+  "splatSigma": 0.0013055556
 }

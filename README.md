@@ -1,15 +1,15 @@
-# Offline 3D Buddhabrot Splat
+# Offline Complex Hénon Escape Splat
 
-A precomputed Buddhabrot presented as a standard 3D Gaussian Splatting asset.
-The generator tests 12 million complex parameters against a real 1,048,576-step
-escape cap. X/Y store the canonical complex orbit position; continuous depth
-stores normalized progress from origin to escape. A head-on view remains the
-recognizable Buddhabrot, while rotation exposes its trajectories as a 1600² ×
-256 orbit-time volume. The million tiny translucent dots are sampled from actual
-orbit events, not copied image planes.
+A precomputed Buddhabrot-like escape cloud presented as a standard 3D Gaussian
+Splatting asset. The generator iterates the complex Hénon map
+`(z,w) → (z² + c - a·w, z)` for 12 million candidate values of `c`, using the
+fixed complex coupling `a = 0.22 exp(0.65i)`. Each path lives in four real
+dimensions. A fixed oblique projection maps the coupled C² state into a sparse
+864³ XYZ lattice, then emits one million tiny translucent dots. No coordinate is
+orbit time, and no image planes are copied, stacked, or revolved.
 
 Fractal generation is entirely offline. The browser only downloads and presents
-the 5.2 MB `public/buddhabrot.spz` artifact with Spark. The earlier interactive
+the 4.1 MB `public/henon-buddhabrot.spz` artifact with Spark. The earlier interactive
 orbit experiment remains available at `/orbit`.
 
 ## Regenerate the artifact
@@ -24,17 +24,16 @@ Override the workload with environment variables:
 
 ```bash
 BUDDHABROT_SAMPLES=20000000 \
-BUDDHABROT_ITERATIONS=1048576 \
-BUDDHABROT_RESOLUTION=1600 \
-BUDDHABROT_DEPTH=256 \
-BUDDHABROT_MIN_ESCAPE=16 \
+BUDDHABROT_ITERATIONS=512 \
+BUDDHABROT_RESOLUTION=864 \
+BUDDHABROT_MIN_ESCAPE=8 \
 BUDDHABROT_MAX_SPLATS=800000 \
 npm run generate:splat
 ```
 
 The generator writes the uncompressed standard 3DGS PLY to
 `outputs/buddhabrot/splat.ply`, then uses `@playcanvas/splat-transform` to write
-the web-delivery SPZ to `public/buddhabrot.spz`.
+the web-delivery SPZ to `public/henon-buddhabrot.spz`.
 
 ## Run locally
 

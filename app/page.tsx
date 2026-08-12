@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import OfflineBuddhabrot from "./OfflineBuddhabrot";
 
 export const metadata: Metadata = {
-  title: "3D Buddhabrot — Orbit-Time Escape Volume",
-  description: "A proper offline Buddhabrot at 1600² × 256 resolution, with continuous orbit progress forming its explorable third dimension.",
+  title: "3D Buddhabrot — Complex Hénon Escape Cloud",
+  description: "A million-splat cloud formed by projecting coupled quadratic escape orbits from two complex variables into real XYZ space.",
 };
 
 export default function Home() {
