@@ -14,7 +14,7 @@ type EngineSettings = {
   persistence: number;
 };
 
-const MAX_ITERATIONS = 1_048_576;
+const MAX_ITERATIONS = 10_000_000;
 const FRAME_BATCH = 4096;
 const MAX_FRAME_POINTS = FRAME_BATCH;
 const WORKGROUP_SIZE = 64;
@@ -188,7 +188,7 @@ export default function OrbitLab() {
   const engineRef = useRef<{ update: (next: Partial<EngineSettings>) => void; reset: () => void } | null>(null);
   const pointRef = useRef({ x: -0.74364, y: 0.13183 });
   const settingsRef = useRef<EngineSettings>({
-    iterations: 131072,
+    iterations: MAX_ITERATIONS,
     persistence: 97,
   });
   const [point, setPoint] = useState(pointRef.current);
@@ -601,7 +601,7 @@ export default function OrbitLab() {
               <span className="controlLabel">Orbit depth</span>
               <span className="controlValue">{settings.iterations.toLocaleString()} total · {FRAME_BATCH}/frame</span>
             </span>
-            <input className="range" type="range" min="5" max="20" step="1" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: 2 ** Number(event.target.value) })} />
+            <input className="range" type="range" min="5" max={Math.log2(MAX_ITERATIONS)} step="0.125" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: Math.min(MAX_ITERATIONS, Math.round(2 ** Number(event.target.value))) })} />
           </label>
 
           <label className="controlRow">
