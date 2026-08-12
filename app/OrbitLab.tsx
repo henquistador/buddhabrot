@@ -21,6 +21,7 @@ const CURSOR_DISK_RADIUS = 0.04;
 const FRAME_POINT_BUDGET = 100_000;
 const MAX_FRAME_POINTS = FRAME_POINT_BUDGET;
 const WORKGROUP_SIZE = 64;
+const DEFAULT_ZOOM = 3;
 
 const computeShader = /* wgsl */ `
 struct Params {
@@ -302,7 +303,7 @@ export default function OrbitLab() {
       let nextStream = 0;
       let lastSpawnTime = 0;
       let viewCenter = { x: -0.62, y: 0 };
-      let zoom = 1;
+      let zoom = DEFAULT_ZOOM;
       let dragging = false;
       let lastPointer = { x: 0, y: 0 };
       let lastStatTime = performance.now();
@@ -460,7 +461,7 @@ export default function OrbitLab() {
         },
         reset() {
           viewCenter = { x: -0.62, y: 0 };
-          zoom = 1;
+          zoom = DEFAULT_ZOOM;
           resetStreams();
           clearAccumulation();
         },
