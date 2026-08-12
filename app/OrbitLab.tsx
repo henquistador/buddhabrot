@@ -11,6 +11,7 @@ type Stats = {
 
 type EngineSettings = {
   iterations: number;
+  persistence: number;
 };
 
 const MAX_ITERATIONS = 1_048_576;
@@ -64,7 +65,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   var state = states[particle];
   let newGeneration = state.generation != params.generation;
-  let needsRestart = newGeneration;
+  let needsRestart = newGeneration || state.alive == 0u || state.step >= params.iterations;
   if (needsRestart) {
     state.cycle = 0u;
     state.z = vec2f(0.0);
@@ -188,6 +189,7 @@ export default function OrbitLab() {
   const pointRef = useRef({ x: -0.74364, y: 0.13183 });
   const settingsRef = useRef<EngineSettings>({
     iterations: 131072,
+    persistence: 97,
   });
   const [point, setPoint] = useState(pointRef.current);
   const [settings, setSettings] = useState(settingsRef.current);
@@ -397,7 +399,6 @@ export default function OrbitLab() {
         const next = toComplex(event.clientX, event.clientY);
         pointRef.current = next;
         bumpGeneration();
-        clearAccumulation();
         setPoint(next);
       };
       const onWheel = (event: WheelEvent) => {
@@ -478,7 +479,8 @@ export default function OrbitLab() {
           (now * 0.00002) % 0.15,
           0, 0,
         ]));
-        device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([1, 1.8, 0, 0]));
+        const fade = 0.8 + cfg.persistence * 0.002;
+        device.queue.writeBuffer(fadeBuffer, 0, new Float32Array([fade, 1.8, 0, 0]));
 
         const destination = textures[1 - textureIndex];
         const encoder = device.createCommandEncoder();
@@ -600,6 +602,14 @@ export default function OrbitLab() {
               <span className="controlValue">{settings.iterations.toLocaleString()} total · {FRAME_BATCH}/frame</span>
             </span>
             <input className="range" type="range" min="5" max="20" step="1" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: 2 ** Number(event.target.value) })} />
+          </label>
+
+          <label className="controlRow">
+            <span className="controlHead">
+              <span className="controlLabel">Trail memory</span>
+              <span className="controlValue">{settings.persistence}%</span>
+            </span>
+            <input className="range" type="range" min="0" max="99" step="1" value={settings.persistence} onChange={(event) => patchSettings({ persistence: Number(event.target.value) })} />
           </label>
 
           <div className="buttonRow singleButton">
