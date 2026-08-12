@@ -14,11 +14,11 @@ type EngineSettings = {
   persistence: number;
 };
 
-const MAX_ITERATIONS = 20_000_000;
-const RING_SEEDS = 16;
-const MAX_STREAMS = 256;
-const CURSOR_RING_RADIUS = 0.065;
-const FRAME_POINT_BUDGET = 200_000;
+const MAX_ITERATIONS = 50_000_000;
+const CURSOR_SEEDS = 100;
+const MAX_STREAMS = 1_600;
+const CURSOR_DISK_RADIUS = 0.04;
+const FRAME_POINT_BUDGET = 100_000;
 const MAX_FRAME_POINTS = FRAME_POINT_BUDGET;
 const WORKGROUP_SIZE = 64;
 
@@ -300,7 +300,6 @@ export default function OrbitLab() {
       let textureIndex = 0;
       let currentParticles = 0;
       let nextStream = 0;
-      let ringGeneration = 0;
       let lastSpawnTime = 0;
       let viewCenter = { x: -0.62, y: 0 };
       let zoom = 1;
@@ -311,30 +310,28 @@ export default function OrbitLab() {
       let smoothFrameMs = 16.7;
       let pageVisible = !document.hidden;
 
-      function spawnRing(c: { x: number; y: number }) {
-        const states = new Float32Array(RING_SEEDS * 8);
+      function spawnCloud(c: { x: number; y: number }) {
+        const states = new Float32Array(CURSOR_SEEDS * 8);
         const uintStates = new Uint32Array(states.buffer);
-        const radius = CURSOR_RING_RADIUS / zoom;
-        const rotation = ringGeneration * 2.399963229728653;
-        for (let seed = 0; seed < RING_SEEDS; seed++) {
-          const angle = rotation + (seed / RING_SEEDS) * Math.PI * 2;
+        const maxRadius = CURSOR_DISK_RADIUS / zoom;
+        for (let seed = 0; seed < CURSOR_SEEDS; seed++) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.sqrt(Math.random()) * maxRadius;
           const offset = seed * 8;
           states[offset + 2] = c.x + Math.cos(angle) * radius;
           states[offset + 3] = c.y + Math.sin(angle) * radius;
           uintStates[offset + 7] = 1;
         }
         device.queue.writeBuffer(stateBuffer, nextStream * 32, states);
-        nextStream = (nextStream + RING_SEEDS) % MAX_STREAMS;
-        currentParticles = Math.min(MAX_STREAMS, currentParticles + RING_SEEDS);
-        ringGeneration += 1;
+        nextStream = (nextStream + CURSOR_SEEDS) % MAX_STREAMS;
+        currentParticles = Math.min(MAX_STREAMS, currentParticles + CURSOR_SEEDS);
       }
 
       function resetStreams() {
         device.queue.writeBuffer(stateBuffer, 0, new Uint8Array(MAX_STREAMS * 32));
         currentParticles = 0;
         nextStream = 0;
-        ringGeneration = 0;
-        spawnRing(pointRef.current);
+        spawnCloud(pointRef.current);
       }
 
       function makeTextureBindGroup(pipeline: any, texture: any) {
@@ -415,7 +412,7 @@ export default function OrbitLab() {
         pointRef.current = next;
         const now = performance.now();
         if (now - lastSpawnTime >= 120) {
-          spawnRing(next);
+          spawnCloud(next);
           lastSpawnTime = now;
         }
         setPoint(next);
@@ -592,7 +589,7 @@ export default function OrbitLab() {
             <span className="brandEdition">Mandelbrot trajectory engine</span>
           </span>
         </div>
-        <p className="topCopy">Trace z² + c at GPU speed. Each cursor sample launches a sparse ring of nearby orbits—the first step from Mandelbrot to Buddhabrot.</p>
+        <p className="topCopy">Trace z² + c at GPU speed. Each cursor sample launches a compact cloud of nearby orbits—the first step from Mandelbrot to Buddhabrot.</p>
       </header>
 
       <div className="orbitWorkspace">
@@ -618,7 +615,7 @@ export default function OrbitLab() {
           </p>
           <p className="pointState">{escapeLabel(point.x, point.y, settings.iterations)}</p>
 
-          <div className="stat"><span className="statLabel">Cursor ring</span><span className="statValue">{RING_SEEDS} seeds</span></div>
+          <div className="stat"><span className="statLabel">Cursor cloud</span><span className="statValue">{CURSOR_SEEDS} random seeds</span></div>
 
           <label className="controlRow">
             <span className="controlHead">
@@ -648,7 +645,7 @@ export default function OrbitLab() {
           <div className="stat"><span className="statLabel">Orbit streams</span><span className="statValue">{stats.particles}</span></div>
         </aside>
 
-        <p className="hint">Move: launch a 16-seed ring · Scroll: zoom · Shift + drag: pan</p>
+        <p className="hint">Move: launch 100 random seeds · Scroll: zoom · Shift + drag: pan</p>
 
         </div>
       </div>
