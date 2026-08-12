@@ -1,15 +1,15 @@
 # Offline 3D Buddhabrot Splat
 
-A precomputed, genuinely three-dimensional Buddhabrot presented as a standard
-3D Gaussian Splatting asset. The generator samples 12 million independent XYZ
-parameters and iterates a quadratic quaternion slice. Its complex cross-section
-is the familiar Mandelbrot map, while continuously angled escape paths fill real
-XYZ space. The paths enter a sparse 864³ density lattice, from which a weighted
-spatial reservoir preserves one million tiny, translucent dots across both dense
-and faint interior regions. No planes are copied or extruded.
+A precomputed Buddhabrot presented as a standard 3D Gaussian Splatting asset.
+The generator tests 12 million complex parameters against a real 1,048,576-step
+escape cap. X/Y store the canonical complex orbit position; continuous depth
+stores normalized progress from origin to escape. A head-on view remains the
+recognizable Buddhabrot, while rotation exposes its trajectories as a 1600² ×
+256 orbit-time volume. The million tiny translucent dots are sampled from actual
+orbit events, not copied image planes.
 
 Fractal generation is entirely offline. The browser only downloads and presents
-the 3.6 MB `public/buddhabrot.spz` artifact with Spark. The earlier interactive
+the 5.2 MB `public/buddhabrot.spz` artifact with Spark. The earlier interactive
 orbit experiment remains available at `/orbit`.
 
 ## Regenerate the artifact
@@ -24,9 +24,10 @@ Override the workload with environment variables:
 
 ```bash
 BUDDHABROT_SAMPLES=20000000 \
-BUDDHABROT_ITERATIONS=128 \
-BUDDHABROT_RESOLUTION=256 \
-BUDDHABROT_MIN_ESCAPE=5 \
+BUDDHABROT_ITERATIONS=1048576 \
+BUDDHABROT_RESOLUTION=1600 \
+BUDDHABROT_DEPTH=256 \
+BUDDHABROT_MIN_ESCAPE=16 \
 BUDDHABROT_MAX_SPLATS=800000 \
 npm run generate:splat
 ```

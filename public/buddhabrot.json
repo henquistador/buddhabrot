@@ -1,11 +1,13 @@
 {
-  "generator": "offline-quaternion-buddhabrot-3dgs",
+  "generator": "offline-buddhabrot-orbit-time-3dgs",
   "candidateSamples": 12000000,
-  "escapedSamples": 1797050,
-  "maxIterations": 96,
+  "mirroredSamples": 24000000,
+  "escapedSamples": 326450,
+  "maxIterations": 1048576,
   "mapPower": 2,
-  "resolution": [864, 864, 864],
-  "volumeAxis": "quaternion-slice-x-y-z",
+  "resolution": [1600, 1600, 256],
+  "volumeAxis": "normalized-orbit-progress",
+  "volumeDepth": 1.15,
   "gaussians": 1000000,
-  "splatSigma": 0.00074768519
+  "splatSigma": 0.00138125
 }

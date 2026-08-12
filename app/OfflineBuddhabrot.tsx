@@ -7,22 +7,26 @@ import styles from "./OfflineBuddhabrot.module.css";
 
 type AssetStats = {
   candidateSamples: number;
+  mirroredSamples: number;
   escapedSamples: number;
   maxIterations: number;
   resolution: [number, number, number];
   gaussians: number;
   volumeAxis: string;
   mapPower: number;
+  volumeDepth: number;
 };
 
 const FALLBACK_STATS: AssetStats = {
   candidateSamples: 12_000_000,
-  escapedSamples: 1_797_050,
-  maxIterations: 96,
-  resolution: [864, 864, 864],
+  mirroredSamples: 24_000_000,
+  escapedSamples: 326_450,
+  maxIterations: 1_048_576,
+  resolution: [1600, 1600, 256],
   gaussians: 1_000_000,
-  volumeAxis: "quaternion-slice-x-y-z",
+  volumeAxis: "normalized-orbit-progress",
   mapPower: 2,
+  volumeDepth: 1.15,
 };
 
 function compact(value: number) {
@@ -58,9 +62,9 @@ export default function OfflineBuddhabrot() {
     scene.background = new THREE.Color(0x030408);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 20);
     const view = {
-      target: new THREE.Vector3(-0.42, 0, 0),
-      yaw: -0.58,
-      pitch: 0.28,
+      target: new THREE.Vector3(-0.25, 0, 0),
+      yaw: 0,
+      pitch: 0,
       distance: 5.1,
     };
     const panRight = new THREE.Vector3();
@@ -90,7 +94,7 @@ export default function OfflineBuddhabrot() {
     const spark = new SparkRenderer({
       renderer,
       onDirty: scheduleRender,
-      minPixelRadius: 0.12,
+      minPixelRadius: 0.02,
       maxStdDev: 2.15,
       blurAmount: 0,
       falloff: 1,
@@ -99,7 +103,10 @@ export default function OfflineBuddhabrot() {
     scene.add(spark);
 
     const splat = new SplatMesh({ url: "/buddhabrot.spz", lod: false });
-    splat.opacity = 0.68;
+    splat.opacity = 0.85;
+    // Canonical Buddhabrot presentation: the real axis is vertical.
+    splat.rotation.z = Math.PI / 2;
+    splat.position.y = 0.5;
     scene.add(splat);
 
     let dragging = false;
@@ -107,9 +114,9 @@ export default function OfflineBuddhabrot() {
     let lastPointer = { x: 0, y: 0 };
 
     function resetCamera() {
-      view.target.set(-0.42, 0, 0);
-      view.yaw = -0.58;
-      view.pitch = 0.28;
+      view.target.set(-0.25, 0, 0);
+      view.yaw = 0;
+      view.pitch = 0;
       view.distance = 5.1;
       scheduleRender();
     }
@@ -204,7 +211,7 @@ export default function OfflineBuddhabrot() {
           <span className={styles.mark} aria-hidden="true" />
           <span>
             <strong>3D Buddhabrot</strong>
-            <small>TRUE XYZ ESCAPE VOLUME</small>
+            <small>ORBIT-TIME ESCAPE VOLUME</small>
           </span>
         </div>
         <p>One finished 3D escape field. No browser-side fractal iteration.</p>
@@ -219,17 +226,18 @@ export default function OfflineBuddhabrot() {
           <span className={styles.eyebrow}><i /> Precomputed XYZ artifact</span>
           <h1>THE ESCAPE VOLUME</h1>
           <p>
-            The classic Buddhabrot cross-section carried through a continuous
-            quadratic quaternion volume. Every axis is spatial, and faint inner
-            orbit trails remain in the finished splat.
+            The canonical Buddhabrot in X/Y, sculpted into continuous depth by
+            each point&apos;s progress along its escaping orbit. Front view keeps
+            the Buddha; rotation opens the trajectories inside it.
           </p>
           <dl>
-            <div><dt>Quaternion power</dt><dd>{stats.mapPower}</dd></div>
-            <div><dt>Orbit depth</dt><dd>{stats.maxIterations}</dd></div>
-            <div><dt>XYZ parameters</dt><dd>{compact(stats.candidateSamples)}</dd></div>
+            <div><dt>Quadratic power</dt><dd>{stats.mapPower}</dd></div>
+            <div><dt>Escape cap</dt><dd>{compact(stats.maxIterations)}</dd></div>
+            <div><dt>Candidate c values</dt><dd>{compact(stats.candidateSamples)}</dd></div>
+            <div><dt>Effective samples</dt><dd>{compact(stats.mirroredSamples)}</dd></div>
             <div><dt>Escaping paths</dt><dd>{compact(stats.escapedSamples)}</dd></div>
             <div><dt>Tiny Gaussians</dt><dd>{compact(stats.gaussians)}</dd></div>
-            <div><dt>Density lattice</dt><dd>{stats.resolution[0]}³</dd></div>
+            <div><dt>Orbit-time lattice</dt><dd>{stats.resolution[0]}² × {stats.resolution[2]}</dd></div>
           </dl>
         </aside>
 
