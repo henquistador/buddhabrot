@@ -131,9 +131,17 @@ struct VSOut {
 }
 
 @vertex
-fn vs(@location(0) position: vec2f, @location(1) stepT: f32) -> VSOut {
+fn vs(
+  @location(0) position: vec2f,
+  @location(1) stepT: f32,
+  @builtin(vertex_index) vertexIndex: u32,
+) -> VSOut {
+  let corners = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+  );
   var out: VSOut;
-  out.position = vec4f(position, 0.0, 1.0);
+  out.position = vec4f(position + corners[vertexIndex] / style.resolution, 0.0, 1.0);
   let subpixelEnergy = clamp(exp2(stepT * style.sizeSlope), 0.125, 8.0);
   out.color = mix(vec3f(0.20, 1.0, 0.60), vec3f(0.30, 0.48, 1.0), stepT + style.hue) * subpixelEnergy;
   return out;
@@ -220,7 +228,7 @@ export default function OrbitLab() {
     iterations: 131072,
     density: 12,
     persistence: 94,
-    pointSize: 0.65,
+    pointSize: 1,
     sizeSlope: -3,
     halo: false,
     targetFps: 60,
@@ -292,6 +300,7 @@ export default function OrbitLab() {
           entryPoint: "vs",
           buffers: [{
             arrayStride: 16,
+            stepMode: "instance",
             attributes: [
               { shaderLocation: 0, offset: 0, format: "float32x2" },
               { shaderLocation: 1, offset: 8, format: "float32" },
@@ -309,7 +318,7 @@ export default function OrbitLab() {
             },
           }],
         },
-        primitive: { topology: "point-list" },
+        primitive: { topology: "triangle-list" },
       });
       const fadePipeline = device.createRenderPipeline({
         layout: "auto",
@@ -521,7 +530,7 @@ export default function OrbitLab() {
         params[11] = viewCenter.y;
         device.queue.writeBuffer(paramsBuffer, 0, params);
 
-        const baseAlpha = Math.min(0.026, 1.05 / Math.sqrt(currentParticles));
+        const baseAlpha = Math.min(0.08, 3 / Math.sqrt(currentParticles));
         const sizeAlpha = cfg.pointSize * cfg.pointSize;
         const alpha = baseAlpha * sizeAlpha;
         device.queue.writeBuffer(orbitStyleBuffer, 0, new Float32Array([
@@ -561,7 +570,7 @@ export default function OrbitLab() {
         const pointCount = currentParticles * FRAME_BATCH;
         orbitPass.setPipeline(orbitPipeline);
         orbitPass.setBindGroup(0, orbitBindGroup);
-        orbitPass.draw(pointCount);
+        orbitPass.draw(6, pointCount);
         orbitPass.end();
 
         const displayPass = encoder.beginRenderPass({
