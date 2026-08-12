@@ -14,9 +14,10 @@ type EngineSettings = {
   persistence: number;
 };
 
-const MAX_ITERATIONS = 10_000_000;
-const FRAME_BATCH = 4096;
-const MAX_FRAME_POINTS = FRAME_BATCH;
+const MAX_ITERATIONS = 20_000_000;
+const MAX_STREAMS = 32;
+const FRAME_POINT_BUDGET = 200_000;
+const MAX_FRAME_POINTS = FRAME_POINT_BUDGET;
 const WORKGROUP_SIZE = 64;
 
 const computeShader = /* wgsl */ `
@@ -64,17 +65,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (particle >= params.particleCount) { return; }
 
   var state = states[particle];
-  let newGeneration = state.generation != params.generation;
-  let needsRestart = newGeneration || state.alive == 0u || state.step >= params.iterations;
-  if (needsRestart) {
-    state.cycle = 0u;
-    state.z = vec2f(0.0);
-    state.sampleC = params.c;
-    state.step = 0u;
-    state.generation = params.generation;
-    state.alive = 1u;
-  }
-
   for (var localStep = 0u; localStep < params.batchIterations; localStep++) {
     let slot = particle * params.batchIterations + localStep;
     if (state.alive == 0u || state.step >= params.iterations) {
@@ -234,8 +224,8 @@ export default function OrbitLab() {
         usage: usage.STORAGE | usage.VERTEX,
       });
       const stateBuffer = device.createBuffer({
-        size: 32,
-        usage: usage.STORAGE,
+        size: MAX_STREAMS * 32,
+        usage: usage.STORAGE | usage.COPY_DST,
       });
       const paramsBuffer = device.createBuffer({ size: 64, usage: usage.UNIFORM | usage.COPY_DST });
       const orbitStyleBuffer = device.createBuffer({ size: 16, usage: usage.UNIFORM | usage.COPY_DST });
@@ -306,10 +296,11 @@ export default function OrbitLab() {
       let displayBindGroups: any[] = [];
       let textureSize = { width: 0, height: 0 };
       let textureIndex = 0;
-      const currentParticles = 1;
+      let currentParticles = 0;
+      let nextStream = 0;
+      let lastSpawnTime = 0;
       let viewCenter = { x: -0.62, y: 0 };
       let zoom = 1;
-      let generation = 1;
       let dragging = false;
       let lastPointer = { x: 0, y: 0 };
       let lastStatTime = performance.now();
@@ -317,8 +308,21 @@ export default function OrbitLab() {
       let smoothFrameMs = 16.7;
       let pageVisible = !document.hidden;
 
-      function bumpGeneration() {
-        generation = generation === 0xffffffff ? 1 : generation + 1;
+      function spawnStream(c: { x: number; y: number }) {
+        const state = new Float32Array(8);
+        state[2] = c.x;
+        state[3] = c.y;
+        new Uint32Array(state.buffer)[7] = 1;
+        device.queue.writeBuffer(stateBuffer, nextStream * 32, state);
+        nextStream = (nextStream + 1) % MAX_STREAMS;
+        currentParticles = Math.min(MAX_STREAMS, currentParticles + 1);
+      }
+
+      function resetStreams() {
+        device.queue.writeBuffer(stateBuffer, 0, new Uint8Array(MAX_STREAMS * 32));
+        currentParticles = 0;
+        nextStream = 0;
+        spawnStream(pointRef.current);
       }
 
       function makeTextureBindGroup(pipeline: any, texture: any) {
@@ -392,13 +396,16 @@ export default function OrbitLab() {
           viewCenter.x -= dx * 4.7 * (rect.width / rect.height) / zoom;
           viewCenter.y += dy * 4.7 / zoom;
           lastPointer = { x: event.clientX, y: event.clientY };
-          bumpGeneration();
           clearAccumulation();
           return;
         }
         const next = toComplex(event.clientX, event.clientY);
         pointRef.current = next;
-        bumpGeneration();
+        const now = performance.now();
+        if (now - lastSpawnTime >= 120) {
+          spawnStream(next);
+          lastSpawnTime = now;
+        }
         setPoint(next);
       };
       const onWheel = (event: WheelEvent) => {
@@ -408,7 +415,6 @@ export default function OrbitLab() {
         const after = toComplex(event.clientX, event.clientY);
         viewCenter.x += before.x - after.x;
         viewCenter.y += before.y - after.y;
-        bumpGeneration();
         clearAccumulation();
       };
       canvas.addEventListener("pointerdown", onPointerDown);
@@ -421,6 +427,7 @@ export default function OrbitLab() {
       ro.observe(canvas);
       resize();
       clearAccumulation();
+      resetStreams();
 
       const onVisibilityChange = () => {
         pageVisible = !document.hidden;
@@ -437,13 +444,15 @@ export default function OrbitLab() {
 
       engineRef.current = {
         update(next) {
-          if (next.iterations !== undefined) bumpGeneration();
-          if (next.iterations !== undefined) clearAccumulation();
+          if (next.iterations !== undefined) {
+            resetStreams();
+            clearAccumulation();
+          }
         },
         reset() {
           viewCenter = { x: -0.62, y: 0 };
           zoom = 1;
-          bumpGeneration();
+          resetStreams();
           clearAccumulation();
         },
       };
@@ -456,6 +465,7 @@ export default function OrbitLab() {
         smoothFrameMs = smoothFrameMs * 0.92 + delta * 0.08;
 
         const cfg = settingsRef.current;
+        const batchIterations = Math.max(1, Math.floor(FRAME_POINT_BUDGET / Math.max(currentParticles, 1)));
         const aspect = textureSize.width / textureSize.height;
         const point = pointRef.current;
         const params = new Float32Array(16);
@@ -465,8 +475,8 @@ export default function OrbitLab() {
         params[3] = zoom;
         new Uint32Array(params.buffer)[4] = currentParticles;
         new Uint32Array(params.buffer)[5] = cfg.iterations;
-        new Uint32Array(params.buffer)[6] = FRAME_BATCH;
-        new Uint32Array(params.buffer)[7] = generation;
+        new Uint32Array(params.buffer)[6] = batchIterations;
+        new Uint32Array(params.buffer)[7] = 0;
         params[8] = 0;
         params[9] = 0;
         params[10] = viewCenter.x;
@@ -502,7 +512,7 @@ export default function OrbitLab() {
           colorAttachments: [{ view: destination.createView(), loadOp: "load", storeOp: "store" }],
         });
         orbitPass.setVertexBuffer(0, vertexBuffer);
-        const pointCount = currentParticles * FRAME_BATCH;
+        const pointCount = currentParticles * batchIterations;
         orbitPass.setPipeline(orbitPipeline);
         orbitPass.setBindGroup(0, orbitBindGroup);
         orbitPass.draw(pointCount);
@@ -520,7 +530,7 @@ export default function OrbitLab() {
 
         if (now - lastStatTime > 500) {
           const fps = 1000 / smoothFrameMs;
-          const samples = currentParticles * FRAME_BATCH;
+          const samples = currentParticles * batchIterations;
           setStats({ fps, samples, throughput: samples * fps, particles: currentParticles });
           lastStatTime = now;
         }
@@ -599,7 +609,7 @@ export default function OrbitLab() {
           <label className="controlRow">
             <span className="controlHead">
               <span className="controlLabel">Orbit depth</span>
-              <span className="controlValue">{settings.iterations.toLocaleString()} total · {FRAME_BATCH}/frame</span>
+              <span className="controlValue">{settings.iterations.toLocaleString()} total · {formatCount(FRAME_POINT_BUDGET)}/frame</span>
             </span>
             <input className="range" type="range" min="5" max={Math.log2(MAX_ITERATIONS)} step="0.125" value={Math.log2(settings.iterations)} onChange={(event) => patchSettings({ iterations: Math.min(MAX_ITERATIONS, Math.round(2 ** Number(event.target.value))) })} />
           </label>
@@ -621,7 +631,7 @@ export default function OrbitLab() {
           <div className="stat"><span className="statLabel">Frame rate</span><span className="statValue">{stats.fps.toFixed(0)} fps</span></div>
           <div className="stat"><span className="statLabel">Per frame</span><span className="statValue">{formatCount(stats.samples)}</span></div>
           <div className="stat"><span className="statLabel">Per second</span><span className="statValue">{formatCount(stats.throughput)}</span></div>
-          <div className="stat"><span className="statLabel">Orbit streams</span><span className="statValue">1</span></div>
+          <div className="stat"><span className="statLabel">Orbit streams</span><span className="statValue">{stats.particles}</span></div>
         </aside>
 
         <p className="hint">Move: choose c · Scroll: zoom · Shift + drag: pan</p>
