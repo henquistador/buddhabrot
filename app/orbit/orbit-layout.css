@@ -1,0 +1,78 @@
+.orbitWorkspace {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 286px;
+  gap: 12px;
+}
+
+.orbitCanvasPanel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.orbitSidebar {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.orbitSidebar .panel {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.22);
+}
+
+.orbitSidebar .controls {
+  padding: 12px;
+}
+
+.orbitSidebar .stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: 0;
+}
+
+.orbitSidebar .stat {
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.orbitSidebar .hint {
+  position: static;
+  margin: 0;
+  padding: 3px 5px;
+  color: var(--ink-soft);
+  background: transparent;
+}
+
+@media (max-width: 760px) {
+  .orbitWorkspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(430px, 64svh) auto;
+  }
+
+  .orbitCanvasPanel {
+    min-height: 430px;
+  }
+
+  .orbitSidebar {
+    overflow: visible;
+  }
+
+  .orbitSidebar .controls,
+  .orbitSidebar .stats {
+    position: relative;
+    inset: auto;
+    width: 100%;
+  }
+
+  .orbitSidebar .hint {
+    display: block;
+  }
+}

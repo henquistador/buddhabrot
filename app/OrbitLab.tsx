@@ -629,9 +629,21 @@ export default function OrbitLab() {
         <p className="topCopy">Trace z² + c at GPU speed. Each glow is a stack of nearby orbits—the first step from Mandelbrot to Buddhabrot.</p>
       </header>
 
-      <section className="lab" aria-label="Interactive Mandelbrot orbit field">
-        <canvas ref={canvasRef} className="canvas" aria-label="GPU rendered complex plane. Move the pointer to change c." />
-        <div className="gridOverlay" aria-hidden="true" />
+      <div className="orbitWorkspace">
+        <section className="lab orbitCanvasPanel" aria-label="Interactive Mandelbrot orbit field">
+          <canvas ref={canvasRef} className="canvas" aria-label="GPU rendered complex plane. Move the pointer to change c." />
+          <div className="gridOverlay" aria-hidden="true" />
+          {error && (
+            <div className="fallback" role="alert">
+              <div className="fallbackCard">
+                <h2>WebGPU needed.</h2>
+                <p>{error}</p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <div className="orbitSidebar">
 
         <aside className="panel controls">
           <div className="panelEyebrow"><span className="liveDot" /> Live complex coordinate</div>
@@ -705,15 +717,8 @@ export default function OrbitLab() {
 
         <p className="hint">Move: choose c · Scroll: zoom · Shift + drag: pan</p>
 
-        {error && (
-          <div className="fallback" role="alert">
-            <div className="fallbackCard">
-              <h2>WebGPU needed.</h2>
-              <p>{error}</p>
-            </div>
-          </div>
-        )}
-      </section>
+        </div>
+      </div>
     </main>
   );
 }
