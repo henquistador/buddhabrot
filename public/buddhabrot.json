@@ -1,8 +1,8 @@
 {
   "generator": "offline-complex-henon-3dgs",
   "candidateSamples": 12000000,
-  "escapedSamples": 1323658,
-  "maxIterations": 512,
+  "escapedSamples": 1328193,
+  "maxIterations": 4096,
   "mapPower": 2,
   "couplingMagnitude": 0.22,
   "couplingPhase": 0.65,

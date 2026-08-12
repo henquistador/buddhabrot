@@ -46,7 +46,7 @@ struct Point3 {
 
 struct Options {
   uint64_t samples = 12'000'000;
-  uint32_t iterations = 512;
+  uint32_t iterations = 4'096;
   uint32_t resolution = 864;
   uint32_t min_escape = 8;
   uint32_t max_splats = 1'000'000;
@@ -111,9 +111,28 @@ double norm_squared(const Complex& value) {
 uint32_t escape_time(const Complex& c, uint32_t max_iterations) {
   Complex z;
   Complex w;
+  Complex checkpoint_z;
+  Complex checkpoint_w;
+  uint32_t checkpoint_span = 32;
+  uint32_t since_checkpoint = 0;
   for (uint32_t step = 0; step < max_iterations; ++step) {
     iterate(z, w, c);
     if (norm_squared(z) + 0.35 * norm_squared(w) > 36.0) return step + 1;
+
+    // Stop numerically converged attracting cycles. Escaping paths cannot
+    // converge, so this only saves work on parameters that will stay bounded.
+    ++since_checkpoint;
+    const Complex z_delta{z.real - checkpoint_z.real, z.imag - checkpoint_z.imag};
+    const Complex w_delta{w.real - checkpoint_w.real, w.imag - checkpoint_w.imag};
+    if (since_checkpoint > 8 && norm_squared(z_delta) + norm_squared(w_delta) < 1e-26) {
+      return 0;
+    }
+    if (since_checkpoint >= checkpoint_span) {
+      checkpoint_z = z;
+      checkpoint_w = w;
+      since_checkpoint = 0;
+      checkpoint_span = std::min(checkpoint_span * 2u, 1024u);
+    }
   }
   return 0;
 }

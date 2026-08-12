@@ -19,8 +19,8 @@ type AssetStats = {
 
 const FALLBACK_STATS: AssetStats = {
   candidateSamples: 12_000_000,
-  escapedSamples: 1_323_658,
-  maxIterations: 512,
+  escapedSamples: 1_328_193,
+  maxIterations: 4_096,
   resolution: [864, 864, 864],
   gaussians: 1_000_000,
   volumeAxis: "oblique-projection-of-c2",
@@ -102,7 +102,7 @@ export default function OfflineBuddhabrot() {
     });
     scene.add(spark);
 
-    const splat = new SplatMesh({ url: "/henon-buddhabrot.spz", lod: false });
+    const splat = new SplatMesh({ url: "/henon-buddhabrot-4096.spz", lod: false });
     splat.opacity = 0.82;
     scene.add(splat);
 
