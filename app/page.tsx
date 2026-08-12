@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import BuddhabrotSplat from "./BuddhabrotSplat";
+import OfflineBuddhabrot from "./OfflineBuddhabrot";
 
 export const metadata: Metadata = {
-  title: "Buddhabrot Splat Lab",
-  description: "A live 3D Gaussian-splat Buddhabrot renderer powered by WebGPU.",
+  title: "Buddhabrot — Offline Gaussian Exposure",
+  description: "A one-million-iteration Buddhabrot baked into a rotatable 3D volume of 600,000 tiny Gaussian splats.",
 };
 
 export default function Home() {
-  return <BuddhabrotSplat />;
+  return <OfflineBuddhabrot />;
 }

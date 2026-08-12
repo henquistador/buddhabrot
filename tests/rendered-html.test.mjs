@@ -15,18 +15,19 @@ async function render() {
   );
 }
 
-test("server-renders Buddhabrot Splat Lab without the disposable starter", async () => {
+test("server-renders the offline Buddhabrot artifact viewer", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Buddhabrot Splat Lab/);
-  assert.match(html, /Escape-orbit volume/i);
-  assert.match(html, /Interactive 3D Buddhabrot Gaussian splat/);
-  assert.match(html, /Auto · 60 FPS/);
-  assert.match(html, /Splat scale/);
-  assert.match(html, /Tangent stretch/);
-  assert.match(html, /Bloom/);
+  assert.match(html, /<title>Buddhabrot — Offline Gaussian Exposure/);
+  assert.match(html, /One finished 3D splat/i);
+  assert.match(html, /Precomputed Buddhabrot Gaussian splat viewer/);
+  assert.match(html, /1,048,576/);
+  assert.match(html, /Tiny Gaussians/);
+  assert.match(html, /Depth axis/);
+  assert.match(html, /Drag to rotate/i);
+  assert.match(html, /Open orbit lab/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });

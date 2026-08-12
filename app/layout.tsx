@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -12,11 +13,26 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Buddhabrot Splat Lab — Escape Orbit Volume",
-  description:
-    "Explore escaping Mandelbrot trajectories as a live 3D volume of anisotropic Gaussian splats.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") ?? "localhost:3000";
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  const imageUrl = `${protocol}://${host}/og.png`;
+  const title = "Buddhabrot — 3D Escape Volume";
+  const description = "A one-million-iteration Buddhabrot baked offline into a rotatable 3D volume of 600,000 tiny Gaussian splats.";
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "Buddhabrot 3D Escape Volume" }],
+    },
+    twitter: { card: "summary_large_image", title, description, images: [imageUrl] },
+  };
+}
 
 export default function RootLayout({
   children,

@@ -1,5 +1,5 @@
 {
-  "name": "orbit-lab",
+  "name": "offline-buddhabrot-splat",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -11,13 +11,16 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "generate:splat": "bash tools/generate_splat.sh",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@sparkjsdev/spark": "^2.1.0",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
