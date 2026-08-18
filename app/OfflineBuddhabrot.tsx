@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import BuddhabrotSliceLoader from "./BuddhabrotSliceLoader";
 import styles from "./OfflineBuddhabrot.module.css";
+
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 type AssetStats = {
   candidateSamples: number;
@@ -40,9 +43,16 @@ export default function OfflineBuddhabrot() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<AssetStats>(FALLBACK_STATS);
+  const [loaderMounted, setLoaderMounted] = useState(true);
 
   useEffect(() => {
-    fetch("/buddhabrot.json", { cache: "no-store" })
+    if (!loaded && !error) return;
+    const timeout = window.setTimeout(() => setLoaderMounted(false), 460);
+    return () => window.clearTimeout(timeout);
+  }, [loaded, error]);
+
+  useEffect(() => {
+    fetch(`${BASE_PATH}/buddhabrot.json`, { cache: "no-store" })
       .then((response) => response.json() as Promise<AssetStats>)
       .then((data) => setStats({ ...FALLBACK_STATS, ...data }))
       .catch(() => undefined);
@@ -102,7 +112,7 @@ export default function OfflineBuddhabrot() {
     });
     scene.add(spark);
 
-    const splat = new SplatMesh({ url: "/henon-buddhabrot-4096.spz", lod: false });
+    const splat = new SplatMesh({ url: `${BASE_PATH}/henon-buddhabrot-4096.spz`, lod: false });
     splat.opacity = 0.82;
     scene.add(splat);
 
@@ -212,7 +222,7 @@ export default function OfflineBuddhabrot() {
           </span>
         </div>
         <p>One finished 3D escape field. No browser-side fractal iteration.</p>
-        <a href="/orbit">Open orbit lab →</a>
+        <a href={`${BASE_PATH}/orbit/`}>Open orbit lab →</a>
       </header>
 
       <section className={styles.viewport} aria-label="Precomputed 3D Buddhabrot Gaussian splat viewer">
@@ -240,7 +250,7 @@ export default function OfflineBuddhabrot() {
         </aside>
 
         <p className={styles.hint}>DRAG TO ROTATE · SHIFT-DRAG TO PAN · SCROLL TO ZOOM · DOUBLE-CLICK TO RESET</p>
-        {!loaded && !error && <div className={styles.loading}><span /> Loading 1M complex Hénon splats</div>}
+        {loaderMounted && <BuddhabrotSliceLoader exiting={loaded || Boolean(error)} />}
         {error && <div className={`${styles.loading} ${styles.error}`}>Could not load splat: {error}</div>}
       </section>
     </main>

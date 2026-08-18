@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,26 +12,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og.png`;
-  const title = "3D Buddhabrot — Complex Hénon Escape Cloud";
-  const description = "A million-splat cloud formed by projecting coupled quadratic escape orbits from two complex variables into real XYZ space.";
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const siteUrl = process.env.SITE_URL ?? "http://localhost:3000";
+const imageUrl = `${basePath}/og.png`;
+const title = "3D Buddhabrot — Complex Hénon Escape Cloud";
+const description = "A million-splat cloud formed by projecting coupled quadratic escape orbits from two complex variables into real XYZ space.";
 
-  return {
+export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
+  title,
+  description,
+  icons: { icon: `${basePath}/favicon.svg` },
+  openGraph: {
     title,
     description,
-    openGraph: {
-      title,
-      description,
-      type: "website",
-      images: [{ url: imageUrl, width: 1536, height: 1024, alt: "Buddhabrot 3D Escape Volume" }],
-    },
-    twitter: { card: "summary_large_image", title, description, images: [imageUrl] },
-  };
-}
+    type: "website",
+    images: [{ url: imageUrl, width: 1536, height: 1024, alt: "Buddhabrot 3D Escape Volume" }],
+  },
+  twitter: { card: "summary_large_image", title, description, images: [imageUrl] },
+};
 
 export default function RootLayout({
   children,

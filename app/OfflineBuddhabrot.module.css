@@ -222,6 +222,78 @@
   text-transform: uppercase;
 }
 
+.sliceLoader {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  overflow: hidden;
+  color: #aeb2c9;
+  background: #010208;
+  opacity: 1;
+  transition: opacity 420ms ease;
+}
+
+.sliceLoaderExit {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.sliceFallback,
+.sliceCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sliceFallback {
+  background:
+    radial-gradient(ellipse at 52% 49%, rgba(248, 171, 73, 0.14), transparent 8%),
+    radial-gradient(ellipse at 52% 49%, rgba(36, 73, 255, 0.22), transparent 29%),
+    #010208;
+}
+
+.sliceCanvas {
+  display: block;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.sliceCanvasReady {
+  opacity: 1;
+}
+
+.sliceReadout {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(210, 215, 236, 0.64);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.sliceIndicator {
+  width: 18px;
+  height: 1px;
+  position: relative;
+  overflow: hidden;
+  background: rgba(79, 103, 255, 0.35);
+}
+
+.sliceIndicator::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #8f9dff;
+  transform: translateX(-100%);
+  animation: sliceScan 1.4s ease-in-out infinite;
+}
+
 .loading span {
   width: 7px;
   height: 7px;
@@ -237,6 +309,10 @@
 
 @keyframes pulse {
   to { opacity: 0.25; transform: scale(0.7); }
+}
+
+@keyframes sliceScan {
+  50%, 100% { transform: translateX(100%); }
 }
 
 @media (max-width: 760px) {
@@ -272,5 +348,10 @@
 @media (prefers-reduced-motion: reduce) {
   .loading span {
     animation: none;
+  }
+
+  .sliceIndicator::after {
+    animation: none;
+    transform: none;
   }
 }

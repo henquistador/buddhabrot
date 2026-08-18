@@ -24,6 +24,8 @@ test("server-renders the offline Buddhabrot artifact viewer", async () => {
   assert.match(html, /<title>3D Buddhabrot — Complex Hénon Escape Cloud/);
   assert.match(html, /One finished 3D escape field/i);
   assert.match(html, /Precomputed 3D Buddhabrot Gaussian splat viewer/);
+  assert.match(html, /GPU-computed Buddhabrot depth slices/);
+  assert.doesNotMatch(html, /<img[^>]+\.(gif|webp)|<video/i);
   assert.match(html, /Quadratic power/);
   assert.match(html, /Tiny Gaussians/);
   assert.match(html, /XYZ lattice/);
