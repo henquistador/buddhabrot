@@ -418,7 +418,7 @@ export default function BuddhabrotSliceLoader({ exiting }: Props) {
         const seconds = (now - startedAt) * 0.001;
         const phase = reduceMotion ? 0.38 : (seconds % 6.9) / 6.9;
         const slice = 0.18 + 0.78 * (0.5 - 0.5 * Math.cos(phase * Math.PI * 2));
-        const pointScale = Math.max(0.72, Math.min(1.8, textureSize.height / 620));
+        const pointScale = Math.max(0.48, Math.min(1.2, textureSize.height / 930));
         device.queue.writeBuffer(styleBuffer, 0, new Float32Array([
           textureSize.width,
           textureSize.height,
